@@ -62,11 +62,12 @@ void start_flush_server();
         log_event(__FILE__, __LINE__, group_number, message_number, block_number, event_name); \
     } while(0)
 
-inline void CHECK(bool b) {
-    if(!b) {
-        puts("CHECK failed, aborting.");
-        abort();
-    }
-}
+#define CHECK(b)                                                           \
+    do {                                                                   \
+        if(!(b)) {                                                         \
+            printf("%s:%d CHECK failed, aborting.\n", __FILE__, __LINE__); \
+            abort();                                                       \
+        }                                                                  \
+    } while(0)
 
 #endif /* UTIL_H */

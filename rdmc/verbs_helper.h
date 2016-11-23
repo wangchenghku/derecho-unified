@@ -72,7 +72,17 @@ class completion_queue {
     friend class task;
 
 public:
+	struct completion {
+        uint64_t wr_id;
+        uint32_t byte_len;
+        uint32_t imm_data;
+		bool success;
+	};
+	
     explicit completion_queue(bool cross_channel);
+
+	void clear();
+	std::experimental::optional<completion> poll();
 };
  
 typedef std::function<void(uint64_t tag, uint32_t immediate, size_t length)>
@@ -151,7 +161,6 @@ protected:
 	std::unique_ptr<task_impl> impl;
 	std::shared_ptr<manager_queue_pair> mqp;
 	
-
 public:
     task(std::shared_ptr<manager_queue_pair> manager_qp);
 	virtual ~task();
@@ -161,8 +170,10 @@ public:
 	void append_enable_send(const managed_queue_pair& qp, int count);
     void append_send(const managed_queue_pair& qp, const memory_region& mr,
 					 size_t offset, size_t length, uint32_t immediate);
+    void append_empty_send(const managed_queue_pair& qp, uint32_t immediate);
     void append_recv(const managed_queue_pair& qp, const memory_region& mr,
 					 size_t offset, size_t length);
+    void append_empty_recv(const managed_queue_pair& qp);
     bool post() __attribute__((warn_unused_result));
 };
 

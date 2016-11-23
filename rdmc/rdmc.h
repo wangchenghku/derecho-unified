@@ -48,7 +48,8 @@ bool create_group(uint16_t group_number, std::vector<uint32_t> members,
                   size_t block_size, send_algorithm algorithm,
                   incoming_message_callback_t incoming_receive,
                   completion_callback_t send_callback,
-                  failure_callback_t failure_callback)
+                  failure_callback_t failure_callback,
+				  bool cross_channel = false)
     __attribute__((warn_unused_result));
 void destroy_group(uint16_t group_number);
 

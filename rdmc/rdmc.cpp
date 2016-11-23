@@ -1,7 +1,7 @@
 
+#include "rdmc.h"
 #include "group_send.h"
 #include "message.h"
-#include "rdmc.h"
 #include "schedule.h"
 #include "util.h"
 #include "verbs_helper.h"
@@ -15,8 +15,8 @@
 #include <mutex>
 #include <set>
 #include <string>
-#include <vector>
 #include <utility>
+#include <vector>
 
 using namespace std;
 using namespace rdma;
@@ -38,6 +38,10 @@ bool initialize(const map<uint32_t, string>& addresses, uint32_t _node_rank) {
     }
 
 	polling_group::initialize_message_types();
+	if(rdma::get_supported_features().cross_channel) {
+		cross_channel_group::initialize_message_types();
+	}
+	
     return true;
 }
 void add_address(uint32_t index, const string& address) {
@@ -48,7 +52,7 @@ bool create_group(uint16_t group_number, std::vector<uint32_t> members,
                   size_t block_size, send_algorithm algorithm,
                   incoming_message_callback_t incoming_upcall,
                   completion_callback_t callback,
-                  failure_callback_t failure_callback) {
+                  failure_callback_t failure_callback, bool cross_channel) {
     if(shutdown_flag) return false;
 
 	schedule* send_schedule;
@@ -68,9 +72,17 @@ bool create_group(uint16_t group_number, std::vector<uint32_t> members,
     }
 
     unique_lock<mutex> lock(groups_lock);
-    auto g = make_shared<polling_group>(group_number, block_size, members,
-										member_index, incoming_upcall, callback,
-                                        unique_ptr<schedule>(send_schedule));
+	shared_ptr<group> g;
+	if(cross_channel) {
+        g = make_shared<cross_channel_group>(
+            group_number, block_size, members, member_index, incoming_upcall,
+            callback, unique_ptr<schedule>(send_schedule));
+    }else {
+        g = make_shared<polling_group>(group_number, block_size, members,
+                                       member_index, incoming_upcall, callback,
+                                       unique_ptr<schedule>(send_schedule));
+    }
+	
     auto p = groups.emplace(group_number, std::move(g));
     return p.second;
 }

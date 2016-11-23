@@ -94,7 +94,7 @@ send_stats measure_partially_concurrent_multicast(
             [group_number = base_group_number + i](optional<uint32_t>) {
                 LOG_EVENT(group_number, -1, -1, "send_failed");
                 CHECK(false);
-            }));
+            }, true));
     }
 
     vector<double> rates;
@@ -440,8 +440,7 @@ void latency_group_size() {
 // }
 void large_send() {
     LOG_EVENT(-1, -1, -1, "start_large_send");
-    auto s = measure_multicast(16 << 20, 1 << 20, num_nodes, 16,
-                               rdmc::BINOMIAL_SEND);
+    auto s = measure_multicast(64 << 10, 16 << 10, num_nodes, 1, rdmc::CHAIN_SEND);
     //    flush_events();
     printf("Bandwidth = %f(%f) Gb/s\n", s.bandwidth.mean, s.bandwidth.stddev);
     printf("Latency = %f(%f) ms\n", s.time.mean, s.time.stddev);
@@ -522,7 +521,7 @@ void test_cross_channel() {
 	// 	printf("%2d ", mr.buffer[i * chunk_size]);
 	// }
 	// printf("\n");
-	
+
 	puts("PASS");
 }
 

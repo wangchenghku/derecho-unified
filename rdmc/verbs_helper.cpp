@@ -145,23 +145,26 @@ static void polling_loop() {
             }
 
             message_type::tag_type type = wc.wr_id >> message_type::shift_bits;
-            if(type == std::numeric_limits<message_type::tag_type>::max())
+            if(type == std::numeric_limits<message_type::tag_type>::max()) {
                 continue;
-
+			}
             uint64_t masked_wr_id = wc.wr_id & 0x00ffffffffffffff;
             if(type >= completion_handlers.size()) {
                 // Unrecognized message type
             } else if(wc.status != 0) {
                 // Failed operation
             } else if(wc.opcode == IBV_WC_SEND) {
+				CHECK(completion_handlers[type].send);
                 completion_handlers[type].send(masked_wr_id, wc.imm_data,
                                                wc.byte_len);
             } else if(wc.opcode == IBV_WC_RECV) {
+				CHECK(completion_handlers[type].recv);
                 completion_handlers[type].recv(masked_wr_id, wc.imm_data,
                                                wc.byte_len);
             } else if(wc.opcode == IBV_WC_RDMA_WRITE) {
-                completion_handlers[type].write(masked_wr_id, wc.imm_data,
-                                                wc.byte_len);
+				CHECK(completion_handlers[type].write);
+				completion_handlers[type].write(masked_wr_id, wc.imm_data,
+												wc.byte_len);
             } else {
                 puts("Sent unrecognized completion type?!");
             }
@@ -366,9 +369,8 @@ bool verbs_initialize(const map<uint32_t, string> &node_addresses,
 #ifdef MELLANOX_EXPERIMENTAL_VERBS
     {
         supported_features.contiguous_memory = true;
-
         ibv_exp_device_attr attr;
-        attr.comp_mask = 0;
+        attr.comp_mask = IBV_EXP_DEVICE_ATTR_EXP_CAP_FLAGS;
         int ret = ibv_exp_query_device(res->ib_ctx, &attr);
         if(ret == 0) {
             supported_features.cross_channel =
@@ -540,7 +542,7 @@ uint32_t memory_region::get_rkey() const { return mr->rkey; }
 
 completion_queue::completion_queue(bool cross_channel) {
     ibv_cq *cq_ptr = nullptr;
-    if(!cross_channel) {
+    if(!cross_channel || true) {
         cq_ptr =
             ibv_create_cq(verbs_resources.ib_ctx, 1024, nullptr, nullptr, 0);
     } else {
@@ -564,6 +566,32 @@ completion_queue::completion_queue(bool cross_channel) {
     }
 
     cq = decltype(cq)(cq_ptr, [](ibv_cq *q) { ibv_destroy_cq(q); });
+}
+void completion_queue::clear() {
+    const int max_work_completions = 1024;
+    unique_ptr<ibv_wc[]> work_completions(new ibv_wc[max_work_completions]);
+
+	int ret;
+    do {
+        ret = ibv_poll_cq(verbs_resources.cq, max_work_completions,
+                          work_completions.get());
+    } while(ret == 1024);
+}
+	std::experimental::optional<completion_queue::completion> completion_queue::poll() {
+	ibv_wc wc;
+    int ret = ibv_poll_cq(verbs_resources.cq, 1, &wc);
+    CHECK(ret >= 0);
+	
+	if(ret == 0) {
+		return std::experimental::nullopt;
+	}
+	
+	completion c;
+    c.wr_id = wc.wr_id;
+	c.byte_len = wc.byte_len;
+	c.imm_data = wc.imm_data;
+    c.success = (wc.status == IBV_WC_SUCCESS);
+	return c;
 }
 
 queue_pair::~queue_pair() {
@@ -990,6 +1018,20 @@ void task::append_send(const managed_queue_pair &qp, const memory_region &mr,
     wr.comp_mask = 0;
     impl->send_list[qp.qp.get()].push_back(impl->send_wrs.size() - 1);
 }
+void task::append_empty_send(const managed_queue_pair &qp, uint32_t immediate) {
+    impl->send_wrs.emplace_back();
+    auto &wr = impl->send_wrs.back();
+    wr.wr_id = 0xfffffffff5f5f5f5;
+    wr.next = nullptr;
+    wr.sg_list = nullptr;
+    wr.num_sge = 0;
+    wr.exp_opcode = IBV_EXP_WR_SEND;
+    wr.exp_send_flags = 0;
+    wr.ex.imm_data = immediate;
+    wr.comp_mask = 0;
+    impl->send_list[qp.qp.get()].push_back(impl->send_wrs.size() - 1);
+}
+
 void task::append_recv(const managed_queue_pair &qp, const memory_region &mr,
                        size_t offset, size_t length) {
     impl->sges.emplace_back();
@@ -1006,6 +1048,16 @@ void task::append_recv(const managed_queue_pair &qp, const memory_region &mr,
     wr.num_sge = 1;
     impl->recv_list[qp.qp.get()].push_back(impl->recv_wrs.size() - 1);
 }
+void task::append_empty_recv(const managed_queue_pair &qp) {
+    impl->recv_wrs.emplace_back();
+    auto &wr = impl->recv_wrs.back();
+    wr.wr_id = 0xfffffffff4f4f4f4;
+    wr.next = nullptr;
+    wr.sg_list = nullptr;
+    wr.num_sge = 0;
+    impl->recv_list[qp.qp.get()].push_back(impl->recv_wrs.size() - 1);
+}
+
 bool task::post() {
     size_t num_tasks = 1 + impl->send_list.size() + impl->recv_list.size();
     auto tasks = make_unique<ibv_exp_task[]>(num_tasks);
@@ -1078,8 +1130,14 @@ void task::append_send(const managed_queue_pair &qp, const memory_region &mr,
                        size_t offset, size_t length, uint32_t immediate) {
     throw unsupported_feature();
 }
+void task::append_empty_send(const managed_queue_pair &qp, uint32_t immediate) {
+    throw unsupported_feature();
+}
 void task::append_recv(const managed_queue_pair &qp, const memory_region &mr,
                        size_t offset, size_t length) {
+    throw unsupported_feature();
+}
+void task::append_empty_recv(const managed_queue_pair &qp) {
     throw unsupported_feature();
 }
 bool task::post() {
@@ -1104,6 +1162,8 @@ message_type::message_type(const string &name, completion_handler send_handler,
     set.write = write_handler;
     set.name = name;
     completion_handlers.push_back(set);
+
+	printf("Created message type %s\n", name.c_str());
 }
 
 message_type message_type::ignored() {
