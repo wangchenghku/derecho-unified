@@ -83,7 +83,7 @@ static void polling_loop() {
         int num_completions = 0;
         while(num_completions == 0) {
             if(polling_loop_shutdown_flag) return;
-            uint64_t poll_end = get_time() + (interrupt_mode ? 0L : 50000000L);
+            uint64_t poll_end = get_time() + (interrupt_mode ? 0L : 5000000000L);
             do {
                 if(polling_loop_shutdown_flag) return;
                 num_completions =
@@ -542,7 +542,7 @@ uint32_t memory_region::get_rkey() const { return mr->rkey; }
 
 completion_queue::completion_queue(bool cross_channel) {
     ibv_cq *cq_ptr = nullptr;
-    if(!cross_channel || true) {
+    if(!cross_channel) {
         cq_ptr =
             ibv_create_cq(verbs_resources.ib_ctx, 1024, nullptr, nullptr, 0);
     } else {
@@ -575,10 +575,10 @@ void completion_queue::clear() {
     do {
         ret = ibv_poll_cq(verbs_resources.cq, max_work_completions,
                           work_completions.get());
-    } while(ret == 1024);
+    } while(ret == max_work_completions);
 }
-	std::experimental::optional<completion_queue::completion> completion_queue::poll() {
-	ibv_wc wc;
+std::experimental::optional<completion_queue::completion> completion_queue::poll() {
+    ibv_wc wc;
     int ret = ibv_poll_cq(verbs_resources.cq, 1, &wc);
     CHECK(ret >= 0);
 	
@@ -839,8 +839,8 @@ managed_queue_pair::managed_queue_pair(
     attr.send_cq = scq.cq.get();
     attr.recv_cq = rcq.cq.get();
     attr.srq = nullptr;
-    attr.cap.max_send_wr = 1024;
-    attr.cap.max_recv_wr = 1024;
+    attr.cap.max_send_wr = 16384;
+    attr.cap.max_recv_wr = 16384;
     attr.cap.max_send_sge = 1;
     attr.cap.max_recv_sge = 1;
     attr.cap.max_inline_data = 0;
