@@ -94,7 +94,7 @@ send_stats measure_partially_concurrent_multicast(
             [group_number = base_group_number + i](optional<uint32_t>) {
                 LOG_EVENT(group_number, -1, -1, "send_failed");
                 CHECK(false);
-            }, true));
+            }, false));
     }
 
     vector<double> rates;
@@ -109,6 +109,10 @@ send_stats measure_partially_concurrent_multicast(
         if(node_rank < num_senders) {
             for(size_t j = 0; j < size; j += 256)
                 buffer[node_rank * buffer_size + j] = (rand() >> 5) % 256;
+
+			for(size_t j = 0; j < size; j++) {
+                buffer[node_rank * buffer_size + j] = j % 256;
+			}
         }
 
         universal_barrier_group->barrier_wait();
@@ -134,6 +138,11 @@ send_stats measure_partially_concurrent_multicast(
 		rates.push_back(8.0 * size * num_senders / time_diff);
 		times.push_back(1.0e-6 * time_diff);
 		cpu_usages.push_back((double)ptime_diff / time_diff);
+
+		// printf("Buffer = [");
+		// for(size_t j = 0; j < size; j++)
+		// 	printf("%2d ", buffer[j]);
+		// printf("]\n");
     }
 
     for(auto i = 0u; i < group_size; i++) {
@@ -350,8 +359,8 @@ void active_senders() {
     };
 
     auto compute_iterations = [](size_t message_size) -> size_t {
-        if(message_size == 1) return 20000;
-        if(message_size == 10000) return 10000;
+        if(message_size == 1) return 1000;//20000;
+        if(message_size == 10000) return 1000;//10000;
         if(message_size == 1'000'000) return 1000;
         if(message_size == 100'000'000) return 100;
         return max<size_t>(100000000 / message_size, 4u);
@@ -371,7 +380,7 @@ void active_senders() {
                 auto s = measure_partially_concurrent_multicast(
                     message_size, compute_block_size(message_size), group_size,
                     num_senders, compute_iterations(message_size),
-                    rdmc::BINOMIAL_SEND);
+                    rdmc::CHAIN_SEND);
                 printf("%f, ", s.bandwidth.mean);
                 fflush(stdout);
 				cpu_usage.push_back(s.cpu_usage.mean * 100);
@@ -440,7 +449,7 @@ void latency_group_size() {
 // }
 void large_send() {
     LOG_EVENT(-1, -1, -1, "start_large_send");
-    auto s = measure_multicast(64 << 10, 16 << 10, num_nodes, 1, rdmc::CHAIN_SEND);
+    auto s = measure_multicast(100 << 20, 1 << 20, num_nodes, 16, rdmc::BINOMIAL_SEND);
     //    flush_events();
     printf("Bandwidth = %f(%f) Gb/s\n", s.bandwidth.mean, s.bandwidth.stddev);
     printf("Latency = %f(%f) ms\n", s.time.mean, s.time.stddev);
@@ -728,12 +737,13 @@ int main(int argc, char *argv[]) {
     } else if(strcmp(argv[1], "concurrent") == 0) {
         concurrent_bandwidth_group_size();
     } else if(strcmp(argv[1], "active_senders") == 0) {
-		for(bool interrupts : {true, false}){
-			puts("==================================================================");
-			printf("interrupts: %s\n\n", interrupts ? "enabled" : "disabled");
-			rdma::impl::set_interrupt_mode(interrupts);
+		// for(bool interrupts : {false, true}){
+			// puts("==================================================================");
+			// printf("interrupts: %s\n\n", interrupts ? "enabled" : "disabled");
+			// rdma::impl::set_interrupt_mode(interrupts);
+			rdma::impl::set_interrupt_mode(false);
 			active_senders();
-		}
+		// }
     } else if(strcmp(argv[1], "test_create_group_failure") == 0) {
         test_create_group_failure();
         exit(0);

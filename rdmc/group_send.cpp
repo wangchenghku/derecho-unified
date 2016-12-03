@@ -477,7 +477,6 @@ void cross_channel_group::initialize_message_types() {
     };
 
     auto complete_message = [](uint64_t tag, uint32_t immediate, size_t length) {
-		puts("MESSAGE COMPLETED");
         ParsedTag parsed_tag = parse_tag(tag);
         unique_lock<mutex> lock(groups_lock);
 		auto it = groups.find(parsed_tag.group_number);
@@ -580,11 +579,10 @@ void cross_channel_group::send_message(shared_ptr<memory_region> message_mr,
         throw rdmc::invalid_args();
     // printf("message_size = %lu, block_size = %lu, num_blocks = %lu\n",
     //        message_size, block_size, num_blocks);
-    LOG_EVENT(group_number, message_number, -1, "send_message");
+    LOG_EVENT(group_number, message_number, -1, "start_init");
 
 	init_ack_count = 0;
 	((init_message*)init_mr.buffer)->size = message_size;
-	printf("message_size = %llu\n", (unsigned long long)message_size);
 	for(size_t i = 1; i < members.size(); i++) {
         init_queue_pairs.at(i).post_empty_recv(form_tag(group_number, i),
                                                message_types.init_ack);
@@ -592,15 +590,14 @@ void cross_channel_group::send_message(shared_ptr<memory_region> message_mr,
                                          form_tag(group_number, i), 0,
                                          message_types.init);
     }
-
+    LOG_EVENT(group_number, message_number, -1, "start_init_wait");
 	{
 		unique_lock<mutex> lock(init_ack_count_mutex);
         init_ack_count_cv.wait(lock, [&]() {
             return init_ack_count == members.size() - 1;
         });
     }
-
-	puts("GOT ALL INIT ACKS");
+    LOG_EVENT(group_number, message_number, -1, "end_init");
 	
 	message_in_progress = true;
 
@@ -634,10 +631,10 @@ void cross_channel_group::send_message(shared_ptr<memory_region> message_mr,
 						 form_tag(group_number, qp.first),
 						 message_types.completed);
 	}
+    LOG_EVENT(group_number, message_number, -1, "task_ready");
 
 	CHECK(task.post());
-
-	puts("TASK POSTED");
+    LOG_EVENT(group_number, message_number, -1, "task_posted");
 }
 
 void cross_channel_group::complete_message() {
@@ -650,6 +647,8 @@ void cross_channel_group::complete_message() {
     //     LOG_EVENT(group_number, message_number, *first_block_number,
     //               "finished_copying_first_block");
     // }
+	LOG_EVENT(group_number, message_number, -1, "task_completed");
+
     completion_callback(mr->buffer + mr_offset, message_size);
 
     ++message_number;
@@ -665,6 +664,7 @@ void cross_channel_group::complete_message() {
 		// send_ready_for_block(transfer->target);
 		// TODO: post wait on first_block
     }
+	LOG_EVENT(group_number, message_number, -1, "message_completed");
 }
 void cross_channel_group::connect(uint32_t neighbor) {
     queue_pairs.emplace(neighbor, managed_queue_pair(members[neighbor],
@@ -743,10 +743,10 @@ void cross_channel_group::post_relay_task() {
 	}
 
 	CHECK(task.post());
-
-	puts("TASK POSTED");
 }
 void cross_channel_group::receive_init() {
+	LOG_EVENT(group_number, message_number, -1, "init_received");
+
 	message_size = ((init_message*)init_mr.buffer)->size;
     num_blocks = (message_size - 1) / block_size + 1;
 
@@ -758,9 +758,10 @@ void cross_channel_group::receive_init() {
     mr_offset = destination.offset;
     mr = destination.mr;
     CHECK(mr->size >= mr_offset + message_size);
-
+	LOG_EVENT(group_number, message_number, -1, "upcall_done");
 	post_relay_task();
-	
+	LOG_EVENT(group_number, message_number, -1, "relay_task_posted");
     init_queue_pairs.at(0).post_empty_send(form_tag(group_number, 0), 0,
                                            message_types.init_ack);
+	LOG_EVENT(group_number, message_number, -1, "init_acked");
 }
