@@ -983,14 +983,14 @@ void task::append_wait(const completion_queue &cq, int count, bool signaled,
     wr.next = nullptr;
     impl->mqp_list.push_back(impl->send_wrs.size() - 1);
 }
-void task::append_enable_send(const managed_queue_pair &qp, int count) {
+void task::append_enable_send(const managed_queue_pair &qp, int count, bool last) {
     impl->send_wrs.emplace_back();
     auto &wr = impl->send_wrs.back();
     wr.wr_id = 0xfffffffff1f1f1f1;
     wr.sg_list = nullptr;
     wr.num_sge = 0;
     wr.exp_opcode = IBV_EXP_WR_SEND_ENABLE;
-    wr.exp_send_flags = 0;
+    wr.exp_send_flags = (last ? IBV_EXP_SEND_WAIT_EN_LAST : 0);
     wr.ex.imm_data = 0;
     wr.task.wqe_enable.qp = qp.qp.get();
     wr.task.wqe_enable.wqe_count = count;
@@ -1123,7 +1123,7 @@ void task::append_wait(const completion_queue &cq, int count, bool signaled,
                        bool last, uint64_t wr_id, const message_type &type) {
     throw unsupported_feature();
 }
-void task::append_enable_send(const managed_queue_pair &qp, int count) {
+void task::append_enable_send(const managed_queue_pair &qp, int count, bool last) {
     throw unsupported_feature();
 }
 void task::append_send(const managed_queue_pair &qp, const memory_region &mr,

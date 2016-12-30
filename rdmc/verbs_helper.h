@@ -167,7 +167,7 @@ public:
 
     void append_wait(const completion_queue &cq, int count, bool signaled,
 					   bool last, uint64_t wr_id, const message_type &type);
-	void append_enable_send(const managed_queue_pair& qp, int count);
+	void append_enable_send(const managed_queue_pair& qp, int count, bool last);
     void append_send(const managed_queue_pair& qp, const memory_region& mr,
 					 size_t offset, size_t length, uint32_t immediate);
     void append_empty_send(const managed_queue_pair& qp, uint32_t immediate);

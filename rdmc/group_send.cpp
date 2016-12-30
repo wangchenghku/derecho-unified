@@ -621,7 +621,7 @@ void cross_channel_group::send_message(shared_ptr<memory_region> message_mr,
         task.append_wait(rfb_queue_pairs.at(transfer->target).rcq,
 						 rfb_recv_count - 1, false, false, 0x6500000 + i,
 						 message_type::ignored());
-        task.append_enable_send(queue_pairs.at(transfer->target), send_count);
+        task.append_enable_send(queue_pairs.at(transfer->target), 1/*send_count*/, true);
 	}
 
 	size_t i = 0;
@@ -698,7 +698,7 @@ void cross_channel_group::post_relay_task() {
 			
             // Enable ready_for_block.
             task.append_enable_send(rfb_queue_pairs.at(incoming->target),
-									rfb_send_count);
+									1/*rfb_send_count*/, true);
         }
 
 		auto outgoing = transfer_schedule->get_outgoing_transfer(num_blocks, i);
@@ -722,7 +722,7 @@ void cross_channel_group::post_relay_task() {
 							 rfb_recv_count - 1, false, false, 0x6500000 + i,
 							 message_type::ignored());
             task.append_enable_send(queue_pairs.at(outgoing->target),
-									send_count);
+									/*send_count*/1, true);
         }
 
 		if(incoming) {

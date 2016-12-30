@@ -94,7 +94,7 @@ send_stats measure_partially_concurrent_multicast(
             [group_number = base_group_number + i](optional<uint32_t>) {
                 LOG_EVENT(group_number, -1, -1, "send_failed");
                 CHECK(false);
-            }, false));
+            }, true));
     }
 
     vector<double> rates;
@@ -516,7 +516,7 @@ void test_cross_channel() {
 		t.append_send(qp, mr, i * chunk_size, chunk_size, 0);
 	}
 	for(int i = 0; i < steps; i++) {
-        t.append_enable_send(qp, i + 1);
+        t.append_enable_send(qp, 1/*i + 1*/, true);
         t.append_wait(qp.rcq, i + 1, false, false, 0x321000 + i, mtype_done);
     }
     t.append_wait(qp.scq, 0, true, true, 0x6000000, mtype_done);
