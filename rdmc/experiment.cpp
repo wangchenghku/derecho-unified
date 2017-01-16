@@ -14,9 +14,11 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <set>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 using namespace std;
@@ -52,8 +54,10 @@ send_stats measure_partially_concurrent_multicast(
     if(node_rank >= group_size) {
         // Each iteration involves two barriers: one at the start and one at the
         // end.
-        for(size_t i = 0; i < iterations * 2; i++) {
+        for(size_t i = 0; i < iterations; i++) {
             universal_barrier_group->barrier_wait();
+			universal_barrier_group->barrier_wait();
+			std::this_thread::sleep_for(std::chrono::microseconds(20));
         }
 
         return send_stats();
@@ -163,6 +167,215 @@ send_stats measure_multicast(size_t size, size_t block_size,
 												  1, iterations, type, use_cv);
 }
 
+void cosmos(float timescale){
+	const size_t replication_factor = 3;
+    const size_t block_size = 1024 * 1024;
+    const size_t buffer_size = 1024 * 1024 * 1024;
+	// const size_t transfers_per_group = 10;
+	// const size_t transfer_size = 100 * 1024 * 1024;
+	CHECK(num_nodes >= replication_factor + 1);
+
+	auto mr = make_shared<memory_region>(buffer_size + block_size);
+	vector<uint16_t> group_numbers;
+	vector<bool> active_groups;
+	std::mutex active_mutex;
+	
+	atomic<size_t> buffer_offset;
+	buffer_offset = 0;
+
+	atomic<size_t> num_started_transfers;
+	atomic<size_t> num_completed_transfers;
+	num_started_transfers = 0;
+	num_completed_transfers = 0;
+
+	CHECK(replication_factor == 3);
+	vector<std::tuple<unsigned int, unsigned int, unsigned int>> groups;
+	for(unsigned int i = 1; i < num_nodes; i++) {
+		for(unsigned int j = i+1; j < num_nodes; j++) {
+			for(unsigned int k = j+1; k < num_nodes; k++) {
+				groups.emplace_back(i, j, k);
+			}
+		}
+	}
+	size_t num_groups = groups.size();
+
+	for(auto&& g : groups) {
+		uint16_t group_number = next_group_number++;
+		group_numbers.push_back(group_number);
+		active_groups.push_back(false);
+
+        if(node_rank != 0 && node_rank != get<0>(g) && node_rank != get<1>(g) && node_rank != get<2>(g)) {
+            continue;
+		}
+		
+		vector<uint32_t> members;
+		members.push_back(0);
+		members.push_back(get<0>(g));
+		members.push_back(get<1>(g));
+		members.push_back(get<2>(g));
+
+		auto incoming_transfer = [&](size_t length) -> rdmc::receive_destination {
+			++num_started_transfers;
+            size_t offset = buffer_offset.fetch_add(length) % (buffer_size - length);
+            return {mr, offset};
+		};
+        auto transfer_complete = [group_number, &active_mutex, &active_groups, &num_completed_transfers](char *data, size_t) {
+			++num_completed_transfers;
+			unique_lock<mutex> lk(active_mutex);
+			active_groups[group_number] = false;
+		};
+		auto transfer_failed = [group_number](optional<uint32_t>) {
+			LOG_EVENT(group_number, -1, -1, "send_failed");
+			CHECK(false);
+		};
+		
+        CHECK(rdmc::create_group(group_number, members, block_size,
+								 rdmc::BINOMIAL_SEND,
+								 incoming_transfer, transfer_complete,
+								 transfer_failed));
+    }
+
+	CHECK(num_nodes <= 32);
+	struct control_message {
+		struct {
+			size_t total_transfers = 0;
+		} nodes[64];
+		size_t total_transfer_size;
+		double expected_time;
+	};
+
+	vector<uint32_t> control_group_members;
+	for(uint32_t i = 0; i < num_nodes; i++) control_group_members.push_back(i);
+	atomic<bool> control_message_arrived;
+	uint16_t control_group_number = next_group_number++;
+	auto control_mr = make_shared<memory_region>(sizeof(control_message) + 4096);
+	CHECK(rdmc::create_group(control_group_number, control_group_members, 4096,
+							 rdmc::BINOMIAL_SEND,
+							 [&](size_t){return rdmc::receive_destination{control_mr, 0ull};},
+							 [&](char*, size_t){control_message_arrived = true;},
+							 [](optional<uint32_t>){CHECK(false);}));
+
+	uint64_t start_time;
+	
+	if(node_rank == 0) {
+		control_message* message = (control_message*)(control_mr->buffer);
+
+		auto engine = std::default_random_engine{};
+		auto random_group = std::uniform_int_distribution<unsigned int>(0, num_groups-1);
+
+		FILE *f = fopen("extentReplicas.txt", "r");
+		CHECK(f != nullptr);
+		
+		struct transfer {
+			double time;
+			size_t size;
+			unsigned int group_index;
+		};
+		vector<transfer> transfers;
+		double first_time = 0;
+		while(transfers.size() < 100000) {
+			char replicas[1024];
+			unsigned long long uncompressed, compressed, level;
+			unsigned int year, month, day, hour, minute;
+			double second;
+
+			if (fscanf(f, "%s\t%u-%u-%uT%u:%u:%lfZ\t%llu\t%llu\t%llu", replicas, &year,
+					   &month, &day, &hour, &minute, &second, &uncompressed,
+					   &compressed, &level) == EOF) {
+				break;
+			}
+
+			CHECK(year == 2016);
+			CHECK(month == 11);
+		
+			double t = ((day * 24 + hour) * 60 + minute) * 60 + second;
+			if(transfers.empty()) {
+				first_time = t;
+			}
+
+			unsigned int group_index = random_group(engine);
+			message->nodes[get<0>(groups[group_index])].total_transfers++;
+			message->nodes[get<1>(groups[group_index])].total_transfers++;
+			message->nodes[get<2>(groups[group_index])].total_transfers++;
+			message->total_transfer_size += compressed;
+			
+			transfers.emplace_back(transfer{t - first_time, compressed, group_index});
+		}
+		message->expected_time = transfers.back().time;
+		
+		CHECK(rdmc::send(control_group_number, control_mr, 0, sizeof(control_message)));
+		universal_barrier_group->barrier_wait();
+
+		start_time = get_time();
+		uint64_t next_send_time = start_time;
+
+		for(size_t transfer_number = 0; transfer_number < transfers.size(); transfer_number++) {
+			uint16_t group_index = transfers[transfer_number].group_index;
+			while(true) {
+				if(get_time() < next_send_time) {
+					continue;
+				}
+					
+				if(num_started_transfers - num_completed_transfers > 15) {
+					continue;
+				}
+					
+				unique_lock<mutex> lk(active_mutex);
+				if(active_groups[group_index]) {
+					continue;
+				}
+
+				{ // No more waiting is required..
+					if(transfer_number == transfers.size() - 1) {
+						uint64_t dt = get_time() - next_send_time;
+						if(dt < 1000000) {
+							puts("Last message sent ON TIME.");
+						} else {
+							printf("Last message sent LATE by %f ms.\n", dt * 1e-6);
+						}
+					}
+					
+					active_groups[group_index] = true;
+					size_t transfer_size = transfers[transfer_number].size;
+					size_t offset = buffer_offset.fetch_add(transfer_size) % (buffer_size - transfer_size);
+					CHECK(rdmc::send(group_numbers[group_index], mr, offset, transfer_size));
+
+					if(transfer_number != transfers.size() - 1) {
+						next_send_time += 1e9 * (transfers[transfer_number+1].time - transfers[transfer_number].time) / timescale;
+					}
+					++num_started_transfers;
+					break;
+				}
+			}
+		}
+	
+		while(num_completed_transfers < transfers.size()) {}
+	} else {
+		while(!control_message_arrived);
+		puts("Got Control Message");
+		universal_barrier_group->barrier_wait();
+		start_time = get_time();
+		puts("Did barrier");
+		while(num_completed_transfers < ((control_message*)control_mr->buffer)->nodes[node_rank].total_transfers);
+	}
+	
+	universal_barrier_group->barrier_wait();
+	uint64_t end_time = get_time();
+
+	uint64_t dt = end_time - start_time;
+	printf("num_completed_transfers = %d\n", (int)num_completed_transfers);
+	printf("num_groups = %d\n", (int)num_groups);
+	printf("Latency of final message = %f ms\n",
+		   (end_time - (start_time + 1e9 * ((control_message*)control_mr->buffer)->expected_time / timescale)) * 1e-6);
+	printf("Total Time = %f ms. Average Bandwidth = %f\n", dt * 1e-6,
+		   8.0 * ((control_message*)control_mr->buffer)->total_transfer_size / dt);
+	fflush(stdout);
+
+    for(auto g : group_numbers) {
+        rdmc::destroy_group(g);
+    }
+}
+
 void blocksize_v_bandwidth(uint16_t gsize) {
     const size_t min_block_size = 16ull << 10;
     const size_t max_block_size = 16ull << 20;
@@ -233,45 +446,44 @@ void compare_send_types() {
         "MB),Tree Send (8 MB),");
     fflush(stdout);
 
-    const size_t block_size = 1 << 20;
     const size_t iterations = 64;
     for(int gsize = num_nodes; gsize >= 2; --gsize) {
-        auto bp8 = measure_multicast(8 << 20, block_size, gsize, iterations,
+        auto bp10 = measure_multicast(10000, 4096, gsize, iterations,
                                      rdmc::BINOMIAL_SEND);
-        auto bp64 = measure_multicast(64 << 20, block_size, gsize, iterations,
+        auto bp1 = measure_multicast(1000000, 100000, gsize, iterations,
                                       rdmc::BINOMIAL_SEND);
-        auto bp256 = measure_multicast(256 << 20, block_size, gsize, iterations,
+        auto bp100 = measure_multicast(100000000, 1 << 20, gsize, iterations,
                                        rdmc::BINOMIAL_SEND);
-        auto cs8 = measure_multicast(8 << 20, block_size, gsize, iterations,
+        auto cs10 = measure_multicast(10000, 4096, gsize, iterations,
                                      rdmc::CHAIN_SEND);
-        auto cs64 = measure_multicast(64 << 20, block_size, gsize, iterations,
+        auto cs1 = measure_multicast(1000000, 100000, gsize, iterations,
                                       rdmc::CHAIN_SEND);
-        auto cs256 = measure_multicast(256 << 20, block_size, gsize, iterations,
+        auto cs100 = measure_multicast(100000000, 1 << 20, gsize, iterations,
                                        rdmc::CHAIN_SEND);
-        auto ss8 = measure_multicast(8 << 20, block_size, gsize, iterations,
+        auto ss10 = measure_multicast(10000, 4096, gsize, iterations,
                                      rdmc::SEQUENTIAL_SEND);
-        auto ss64 = measure_multicast(64 << 20, block_size, gsize, iterations,
+        auto ss1 = measure_multicast(1000000, 100000, gsize, iterations,
                                       rdmc::SEQUENTIAL_SEND);
-        auto ss256 = measure_multicast(256 << 20, block_size, gsize, iterations,
+        auto ss100 = measure_multicast(100000000, 1 << 20, gsize, iterations,
                                        rdmc::SEQUENTIAL_SEND);
-        auto ts8 = measure_multicast(8 << 20, block_size, gsize, iterations,
+        auto ts10 = measure_multicast(10000, 4096, gsize, iterations,
                                      rdmc::TREE_SEND);
-        auto ts64 = measure_multicast(64 << 20, block_size, gsize, iterations,
+        auto ts1 = measure_multicast(1000000, 100000, gsize, iterations,
                                       rdmc::TREE_SEND);
-        auto ts256 = measure_multicast(256 << 20, block_size, gsize, iterations,
+        auto ts100 = measure_multicast(100000000, 1 << 20, gsize, iterations,
                                        rdmc::TREE_SEND);
         printf(
             "%d, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, "
             "%f, %f, %f, %f, %f, %f, %f, %f, %f\n",
-            gsize, bp256.bandwidth.mean, cs256.bandwidth.mean,
-            ss256.bandwidth.mean, ts256.bandwidth.mean, bp64.bandwidth.mean,
-            cs64.bandwidth.mean, ss64.bandwidth.mean, ts64.bandwidth.mean,
-            bp8.bandwidth.mean, cs8.bandwidth.mean, ss8.bandwidth.mean,
-            ts8.bandwidth.mean, bp256.bandwidth.stddev, cs256.bandwidth.stddev,
-            ss256.bandwidth.stddev, ts256.bandwidth.stddev,
-            bp64.bandwidth.stddev, cs64.bandwidth.stddev, ss64.bandwidth.stddev,
-            ts64.bandwidth.stddev, bp8.bandwidth.stddev, cs8.bandwidth.stddev,
-            ss8.bandwidth.stddev, ts8.bandwidth.stddev);
+            gsize, bp100.bandwidth.mean, cs100.bandwidth.mean,
+            ss100.bandwidth.mean, ts100.bandwidth.mean, bp1.bandwidth.mean,
+            cs1.bandwidth.mean, ss1.bandwidth.mean, ts1.bandwidth.mean,
+            bp10.bandwidth.mean, cs10.bandwidth.mean, ss10.bandwidth.mean,
+            ts10.bandwidth.mean, bp100.bandwidth.stddev, cs100.bandwidth.stddev,
+            ss100.bandwidth.stddev, ts100.bandwidth.stddev,
+            bp1.bandwidth.stddev, cs1.bandwidth.stddev, ss1.bandwidth.stddev,
+            ts1.bandwidth.stddev, bp10.bandwidth.stddev, cs10.bandwidth.stddev,
+            ss10.bandwidth.stddev, ts10.bandwidth.stddev);
 
         // ss256.bandwidth.mean, 0.0f /*ts256.bandwidth.mean*/,
         // bp64.bandwidth.mean, cs64.bandwidth.mean, ss64.bandwidth.mean,
@@ -363,7 +575,7 @@ void active_senders(bool interrupts = false, bool labels = true) {
 			   "half-sending CPU, all-sending CPU\n");
     }
 
-	// rdma::impl::set_interrupt_mode(interrupts);
+	rdma::impl::set_interrupt_mode(interrupts);
 	
     for(size_t message_size : {1, 10000, 1'000'000, 100'000'000}) {
         for(uint32_t group_size = 3; group_size <= num_nodes; group_size++) {
@@ -420,6 +632,24 @@ void latency_group_size() {
     puts("");
     fflush(stdout);
 }
+void rate() {
+	puts("Group Size, One Send, Half Send, All Send");
+	for(uint32_t group_size = 3; group_size <= num_nodes; group_size++) {
+		printf("%d, ", (int)group_size);
+
+		uint32_t half = (group_size + 1) / 2;
+		
+		auto s1 = measure_partially_concurrent_multicast(
+			1, 4096, group_size, 1, 100000, rdmc::BINOMIAL_SEND);
+		auto s2 = measure_partially_concurrent_multicast(
+			1, 4096, group_size, half, 100000, rdmc::BINOMIAL_SEND);
+		auto s3 = measure_partially_concurrent_multicast(
+			1, 4096, group_size, group_size, 100000, rdmc::BINOMIAL_SEND);
+
+		printf("%f, %f, %f\n", 1000.0 / s1.time.mean, half * 1000.0 / s2.time.mean, group_size * 1000.0 / s3.time.mean);
+		fflush(stdout);
+	}
+}
 // void small_send_latency_group_size() {
 //     puts("=========================================================");
 //     puts("=               Latency vs. Group Size                  =");
@@ -445,11 +675,11 @@ void latency_group_size() {
 // }
 void large_send() {
     LOG_EVENT(-1, -1, -1, "start_large_send");
-    auto s = measure_multicast(16 << 20, 1 << 20, num_nodes, 16,
+    auto s = measure_multicast(10000000, 1 << 20, num_nodes, 100,
                                rdmc::BINOMIAL_SEND);
     //    flush_events();
-    printf("Bandwidth = %f(%f) Gb/s\n", s.bandwidth.mean, s.bandwidth.stddev);
-    printf("Latency = %f(%f) ms\n", s.time.mean, s.time.stddev);
+    // printf("Bandwidth = %f (%f) Gb/s\n", s.bandwidth.mean, s.bandwidth.stddev);
+    printf("Latency = %f (%f) ms\n", s.time.mean, s.time.stddev);
     // uint64_t eTime = get_time();
     // double diff = 1.e-6 * (eTime - sTime);
     // printf("Percent time sending: %f%%", 100.0 * s.time.mean * 16 / diff);
@@ -457,11 +687,11 @@ void large_send() {
 }
 void concurrent_send() {
     LOG_EVENT(-1, -1, -1, "start_concurrent_send");
-    auto s = measure_partially_concurrent_multicast(128 << 20, 1 << 20,
-													num_nodes, num_nodes, 16);
+    auto s = measure_partially_concurrent_multicast(256 << 20, 8 << 20,
+													num_nodes, num_nodes, 64);
     //    flush_events();
-    printf("Bandwidth = %f(%f) Gb/s\n", s.bandwidth.mean, s.bandwidth.stddev);
-    printf("Latency = %f(%f) ms\n", s.time.mean, s.time.stddev);
+    printf("Bandwidth = %f (%f) Gb/s\n", s.bandwidth.mean, s.bandwidth.stddev);
+    // printf("Latency = %f(%f) ms\n", s.time.mean, s.time.stddev);
     // uint64_t eTime = get_time();
     // double diff = 1.e-6 * (eTime - sTime);
     // printf("Percent time sending: %f%%", 100.0 * s.time.mean * 16 / diff);
@@ -733,8 +963,8 @@ int main(int argc, char *argv[]) {
         bandwidth_group_size();
     } else if(strcmp(argv[1], "overhead") == 0) {
         latency_group_size();
-    } else if(strcmp(argv[1], "smallsend") == 0) {
-        // small_send_latency_group_size();
+    } else if(strcmp(argv[1], "rate") == 0) {
+		rate();
     } else if(strcmp(argv[1], "concurrent") == 0) {
         concurrent_bandwidth_group_size();
     } else if(strcmp(argv[1], "active_senders") == 0) {
@@ -742,6 +972,8 @@ int main(int argc, char *argv[]) {
 	} else if(strcmp(argv[1], "polling_interrupts") == 0) {
 		active_senders(false, true);
 		active_senders(true, false);
+	} else if(strcmp(argv[1], "cosmos") == 0) {
+		cosmos(9);
     } else if(strcmp(argv[1], "test_create_group_failure") == 0) {
         test_create_group_failure();
         exit(0);
