@@ -40,6 +40,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(
     const ip_addr my_ip,
     dispatcherType _dispatchers,
     CallbackSet callbacks,
+    SubgroupInfo subgroupInfo,
     const DerechoParams derecho_params,
     std::vector<view_upcall_t> _view_upcalls,
     const int gms_port)
@@ -50,6 +51,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(
           next_view(nullptr),
           dispatchers(std::move(_dispatchers)),
           view_upcalls(_view_upcalls),
+          subgroup_info(subgroup_info),
           derecho_params(derecho_params) {
     const node_id_t my_id = 0;
     curr_view = start_group(my_id, my_ip);
@@ -100,6 +102,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(
     // curr_view->derecho_group->debug_print();
 }
 
+// constructor 2
 template <typename dispatcherType>
 ManagedGroup<dispatcherType>::ManagedGroup(const node_id_t my_id,
                                            const ip_addr my_ip,
@@ -107,6 +110,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(const node_id_t my_id,
                                            const ip_addr leader_ip,
                                            dispatcherType _dispatchers,
                                            CallbackSet callbacks,
+					   SubgroupInfo subgroup_info,
                                            std::vector<view_upcall_t> _view_upcalls,
                                            const int gms_port)
         : last_suspected(MAX_MEMBERS),
@@ -116,6 +120,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(const node_id_t my_id,
           next_view(nullptr),
           dispatchers(std::move(_dispatchers)),
           view_upcalls(_view_upcalls),
+	  subgroup_info(subgroup_info),
           derecho_params(0, 0) {
     curr_view = join_existing(my_id, leader_ip, gms_port);
     curr_view->my_rank = curr_view->rank_of(my_id);
@@ -169,12 +174,14 @@ ManagedGroup<dispatcherType>::ManagedGroup(const node_id_t my_id,
     // curr_view->derecho_group->debug_print();
 }
 
+// constructor 3
 template <typename dispatcherType>
 ManagedGroup<dispatcherType>::ManagedGroup(const std::string& recovery_filename,
                                            const node_id_t my_id,
                                            const ip_addr my_ip,
                                            dispatcherType _dispatchers,
                                            CallbackSet callbacks,
+                                           SubgroupInfo subgroup_info,
                                            std::experimental::optional<DerechoParams> _derecho_params,
                                            std::vector<view_upcall_t> _view_upcalls,
                                            const int gms_port)
@@ -185,6 +192,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(const std::string& recovery_filename,
           view_file_name(recovery_filename + persistence::PAXOS_STATE_EXTENSION),
           dispatchers(std::move(_dispatchers)),
           view_upcalls(_view_upcalls),
+	  subgroup_info(subgroup_info),
           derecho_params(0, 0) {
     auto last_view = load_view<dispatcherType>(view_file_name);
 
@@ -613,7 +621,7 @@ void ManagedGroup<dispatcherType>::setup_derecho(std::vector<MessageBuffer>& mes
                                                  const DerechoParams& derecho_params) {
     curr_view->gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
         curr_view->members, curr_view->members[curr_view->my_rank],
-        [this](const uint32_t node_id) { report_failure(node_id); }, curr_view->failed, false));
+        [this](const uint32_t node_id) { report_failure(node_id); }, curr_view->failed, false), subgroup_info.num_subgroups(curr_view->members.size()), calc_nReceived_size());
 
     gmssst::set(curr_view->gmsSST->vid[curr_view->my_rank], curr_view->vid);
 
@@ -633,7 +641,7 @@ template <typename dispatcherType>
 void ManagedGroup<dispatcherType>::transition_sst_and_rdmc(View<dispatcherType>& newView, int whichFailed) {
     newView.gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
         newView.members, newView.members[newView.my_rank],
-        [this](const uint32_t node_id) { report_failure(node_id); }, newView.failed, false));
+        [this](const uint32_t node_id) { report_failure(node_id); }, newView.failed, false), subgroup_info.num_subgroups(curr_view->members.size()), calc_nReceived_size(subgroup_info));
     std::cout << "Going to create the derecho group" << std::endl;
     newView.derecho_group = std::make_unique<DerechoGroup<dispatcherType>>(
         newView.members, newView.members[newView.my_rank], newView.gmsSST,
@@ -999,6 +1007,25 @@ std::map<node_id_t, ip_addr> ManagedGroup<dispatcherType>::get_member_ips_map(
         }
     }
     return member_ips_map;
+}
+
+template <typename dispatcherType>
+uint32_t ManagedGroup<dispatcherType>::calc_nReceived_size() {
+  uint32_t num_members = curr_view.members.size();
+  uint32_t sum = 0;
+  auto num_subgroups = subgroup_info.num_subgroups(num_members);
+  for (uint i = 0; i < num_subgroups; ++i) {
+    auto num_shards = subgroup_info.num_shards(num_members, i);
+    uint32_t max_shard_members = 0;
+    for (uint j = 0; j < num_shards; ++j) {
+      auto shard_size = subgroup_membership(num_members, i, j).size();
+      if (shard_size > max_shard_members) {
+	max_shard_members = shard_size;
+      }
+    }
+    sum += max_shard_members;
+  }
+  return sum;
 }
 
 } /* namespace derecho */

@@ -29,20 +29,20 @@ public:
     /** This variable is the highest sequence number that has been received
      * in-order by this node; if a node updates seq_num, it has received all
      * messages up to seq_num in the global round-robin order. */
-    SSTField<long long int> seq_num;
+    SSTFieldVector<long long int> seq_num;
     /** This represents the highest sequence number that has been received
      * by every node, as observed by this node. If a node updates stable_num,
      * then it believes that all messages up to stable_num in the global
      * round-robin order have been received by every node. */
-    SSTField<long long int> stable_num;
+    SSTFieldVector<long long int> stable_num;
     /** This represents the highest sequence number that has been delivered
      * at this node. Messages are only delievered once stable, so it must be
      * at least stable_num. */
-    SSTField<long long int> delivered_num;
+    SSTFieldVector<long long int> delivered_num;
     /** This represents the highest sequence number that has been persisted
      * to disk at this node, if persistence is enabled. Messages are only
      * persisted to disk once delivered to the application. */
-    SSTField<long long int> persisted_num;
+    SSTFieldVector<long long int> persisted_num;
 
     /** View ID associated with this SST */
     SSTField<int> vid;
@@ -90,14 +90,17 @@ public:
      * @param curr_vid The last stable VID known by the GMS; default is 0
      * (meaning this is the first time a Derecho SST has been created).
      */
-    DerechoSST(const sst::SSTParams& parameters, const int curr_vid = 0)
+  DerechoSST(const sst::SSTParams& parameters, const uint32_t num_subgroups, const uint32_t nReceived_size, const uint32_t curr_vid = 0)
             : sst::SST<DerechoSST>(this, parameters),
+              seq_num(num_subgroups),
+              stable_num(num_subgroups),
+              delivered_num(num_subgroups),
+              persisted_num(num_subgroups),
               suspected(parameters.members.size()),
               changes(parameters.members.size()),
               joiner_ip(MAX_STRING_LEN),
-              nReceived(parameters.members.size()),
-              globalMin(parameters.members.size())
-    {
+              nReceived(nReceived_size),
+              globalMin(parameters.members.size()) {
         SSTInit(seq_num, stable_num, delivered_num,
                 persisted_num, vid, suspected, changes, joiner_ip,
                 nChanges, nCommitted, nAcked, nReceived, wedged,

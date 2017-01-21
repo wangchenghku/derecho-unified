@@ -120,6 +120,7 @@ private:
     std::vector<view_upcall_t> view_upcalls;
 
     DerechoParams derecho_params;
+    SubgroupInfo subgroup_info;
     /** Sends a joining node the new view that has been constructed to include it.*/
     void commit_join(const View<dispatcherType>& new_view,
                      tcp::socket& client_socket);
@@ -181,6 +182,7 @@ public:
     ManagedGroup(const ip_addr my_ip,
                  dispatcherType _dispatchers,
                  CallbackSet callbacks,
+		 SubgroupInfo subgroup_info,
                  const DerechoParams derecho_params,
                  std::vector<view_upcall_t> _view_upcalls = {},
                  const int gms_port = 12345);
@@ -206,6 +208,7 @@ public:
                  const ip_addr leader_ip,
                  dispatcherType _dispatchers,
                  CallbackSet callbacks,
+		 SubgroupInfo subgroup_info,
                  std::vector<view_upcall_t> _view_upcalls = {},
                  const int gms_port = 12345);
     /**
@@ -236,6 +239,7 @@ public:
                  const ip_addr my_ip,
                  dispatcherType _dispatchers,
                  CallbackSet callbacks,
+		 SubgroupInfo subgroup_info,
                  std::experimental::optional<DerechoParams> _derecho_params = std::experimental::optional<DerechoParams>{},
                  std::vector<view_upcall_t> _view_upcalls = {},
                  const int gms_port = 12345);
@@ -281,6 +285,7 @@ public:
     }
     void print_log(std::ostream& output_dest) const;
     std::map<node_id_t, ip_addr> get_member_ips_map(std::vector<node_id_t>& members, std::vector<ip_addr>& member_ips, std::vector<char> failed);
+    uint32_t calc_nReceived_size();
 };
 
 } /* namespace derecho */

@@ -205,6 +205,7 @@ private:
     std::condition_variable thread_start_cv;
 
 public:
+    // constructor
     SST(DerivedSST* derived_class_pointer, const SSTParams& params)
             : derived_this(derived_class_pointer),
               thread_shutdown(false),

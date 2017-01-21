@@ -39,6 +39,12 @@ struct CallbackSet {
     message_callback local_persistence_callback = nullptr;
 };
 
+struct SubgroupInfo {
+    std::function<uint32_t(uint32_t)> num_subgroups;
+    std::function<uint32_t(uint32_t, uint32_t)> num_shards;
+    std::function<std::vector<uint32_t>(uint32_t, uint32_t, uint32_t)> subgroup_membership;
+};
+
 struct DerechoParams : public mutils::ByteRepresentable {
     long long unsigned int max_payload_size;
     long long unsigned int block_size;
