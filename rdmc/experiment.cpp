@@ -14,6 +14,7 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <queue>
 #include <random>
 #include <set>
 #include <string>
@@ -171,13 +172,12 @@ void cosmos(float timescale){
 	const size_t replication_factor = 3;
     const size_t block_size = 1024 * 1024;
     const size_t buffer_size = 1024 * 1024 * 1024;
-	// const size_t transfers_per_group = 10;
-	// const size_t transfer_size = 100 * 1024 * 1024;
 	CHECK(num_nodes >= replication_factor + 1);
 
 	auto mr = make_shared<memory_region>(buffer_size + block_size);
 	vector<uint16_t> group_numbers;
 	vector<bool> active_groups;
+	vector<size_t> group_current_transfer;
 	std::mutex active_mutex;
 	
 	atomic<size_t> buffer_offset;
@@ -199,11 +199,36 @@ void cosmos(float timescale){
 	}
 	size_t num_groups = groups.size();
 
+	std::mutex ack_mutex;
+	std::condition_variable ack_cv;
+	unique_ptr<message_type> ack_message;
+	vector<rdma::queue_pair> ack_qps;
+	bool ack_qp_ready = true;
+	std::queue<size_t> pending_acks;
+	std::thread ack_thread;
+	if(node_rank > 0) {
+        ack_thread = std::thread([&] {
+            while(true) {
+                unique_lock<mutex> lk(ack_mutex);
+				ack_cv.wait(lk, [&] { return ack_qp_ready && !pending_acks.empty(); });
+				size_t group_index = pending_acks.front();
+
+				pending_acks.pop();
+				ack_qp_ready = false;
+                CHECK(ack_qps[0].post_empty_recv(0, *ack_message));
+                CHECK(ack_qps[0].post_empty_send(0, group_index, *ack_message));
+             }
+        });
+    }
+	
 	for(auto&& g : groups) {
 		uint16_t group_number = next_group_number++;
+		size_t group_index = group_numbers.size();
 		group_numbers.push_back(group_number);
 		active_groups.push_back(false);
+		group_current_transfer.push_back(0);
 
+		
         if(node_rank != 0 && node_rank != get<0>(g) && node_rank != get<1>(g) && node_rank != get<2>(g)) {
             continue;
 		}
@@ -219,10 +244,14 @@ void cosmos(float timescale){
             size_t offset = buffer_offset.fetch_add(length) % (buffer_size - length);
             return {mr, offset};
 		};
-        auto transfer_complete = [group_number, &active_mutex, &active_groups, &num_completed_transfers](char *data, size_t) {
+        auto transfer_complete = [&, group_number, group_index](char *data, size_t) {
 			++num_completed_transfers;
-			unique_lock<mutex> lk(active_mutex);
-			active_groups[group_number] = false;
+
+			if(node_rank > 0) {
+				unique_lock<mutex> lk(ack_mutex);
+				pending_acks.push(group_index);
+				ack_cv.notify_all();
+			}
 		};
 		auto transfer_failed = [group_number](optional<uint32_t>) {
 			LOG_EVENT(group_number, -1, -1, "send_failed");
@@ -255,7 +284,7 @@ void cosmos(float timescale){
 							 [&](char*, size_t){control_message_arrived = true;},
 							 [](optional<uint32_t>){CHECK(false);}));
 
-	uint64_t start_time;
+	uint64_t start_time, end_time;
 	
 	if(node_rank == 0) {
 		control_message* message = (control_message*)(control_mr->buffer);
@@ -270,6 +299,7 @@ void cosmos(float timescale){
 			double time;
 			size_t size;
 			unsigned int group_index;
+			uint64_t start_time;
 		};
 		vector<transfer> transfers;
 		double first_time = 0;
@@ -302,7 +332,32 @@ void cosmos(float timescale){
 			transfers.emplace_back(transfer{t - first_time, compressed, group_index});
 		}
 		message->expected_time = transfers.back().time;
-		
+
+		atomic<size_t> acks_remaining;
+		acks_remaining = replication_factor * transfers.size();
+		vector<char> transfer_receivers_left(transfers.size(), replication_factor);
+		vector<uint64_t> transfer_end_times(transfers.size(), 0);
+        ack_message = make_unique<rdma::message_type>("ACK", [](uint64_t, uint32_t, size_t) {},
+            [&](uint64_t tag, uint32_t imm, size_t len) {
+				CHECK(ack_qps[tag].post_empty_recv(tag, *ack_message));
+				CHECK(ack_qps[tag].post_empty_send(tag, 0, *ack_message));
+
+				unique_lock<mutex> lk(active_mutex);
+				size_t transfer = group_current_transfer[imm];
+				CHECK(transfer_receivers_left[transfer] > 0);
+				if(--transfer_receivers_left[transfer] == 0) {
+					CHECK(transfer_end_times[transfer] == 0);
+					transfer_end_times[transfer] = get_time();
+					active_groups[imm] = false;
+				}
+				--acks_remaining;
+			});
+
+        for(unsigned int i = 1; i < num_nodes; i++) {
+			ack_qps.emplace_back(i);
+			ack_qps[i - 1].post_empty_recv(i - 1, *ack_message);
+		}
+
 		CHECK(rdmc::send(control_group_number, control_mr, 0, sizeof(control_message)));
 		universal_barrier_group->barrier_wait();
 
@@ -336,6 +391,8 @@ void cosmos(float timescale){
 					}
 					
 					active_groups[group_index] = true;
+					group_current_transfer[group_index] = transfer_number;
+					transfers[transfer_number].start_time = get_time();
 					size_t transfer_size = transfers[transfer_number].size;
 					size_t offset = buffer_offset.fetch_add(transfer_size) % (buffer_size - transfer_size);
 					CHECK(rdmc::send(group_numbers[group_index], mr, offset, transfer_size));
@@ -348,19 +405,63 @@ void cosmos(float timescale){
 				}
 			}
 		}
-	
+		puts("Waiting for transfers to complete");
 		while(num_completed_transfers < transfers.size()) {}
+		puts("Waiting for rest of ACKS");
+		while(acks_remaining > 0) {}
+		universal_barrier_group->barrier_wait();
+		end_time = get_time();
+
+		// Nanoseconds per bin.
+		const uint64_t resolution = 1000'000'000;
+		
+		uint64_t dt = end_time - start_time;
+		unsigned long long nbins = (dt-1) / resolution + 1;
+		vector<size_t> bins(nbins, 0);
+		for(size_t t = 0; t < transfers.size(); t++) {
+			if(transfers[t].start_time >= transfer_end_times[t]) {
+				printf("END BEFORE START (start = %lu, end = %lu)\n",
+					   transfers[t].start_time, transfer_end_times[t]);
+				continue;
+			}
+			uint64_t stime = transfers[t].start_time - start_time;
+			uint64_t etime = transfer_end_times[t] - start_time;
+
+			uint64_t first_bin = stime / resolution;
+			uint64_t last_bin = etime / resolution;
+			for(uint64_t b = first_bin; b <= last_bin; b++) {
+				uint64_t bstart = b * resolution;
+				uint64_t bend = (b+1) * resolution;
+				
+				uint64_t s = std::max(bstart, stime);
+				uint64_t e = std::min(bend, etime);
+				
+				bins[b] += 8.0 * transfers[t].size * (e-s) / (etime - stime);
+			}
+		}
+		for(auto bin : bins) {
+			printf("%f\n", (double)bin / resolution);
+		}
 	} else {
+		ack_qps.emplace_back(0);
+        ack_message = make_unique<rdma::message_type>("ACK", [](uint64_t, uint32_t, size_t){},
+			[&] (uint64_t, uint32_t, size_t) {
+				unique_lock<mutex> lk(ack_mutex);
+				CHECK(ack_qp_ready == false);
+				ack_qp_ready = true;
+				ack_cv.notify_all();
+			});
+
 		while(!control_message_arrived);
-		puts("Got Control Message");
+        puts("Got Control Message");
 		universal_barrier_group->barrier_wait();
 		start_time = get_time();
 		puts("Did barrier");
 		while(num_completed_transfers < ((control_message*)control_mr->buffer)->nodes[node_rank].total_transfers);
+		universal_barrier_group->barrier_wait();
+		end_time = get_time();
 	}
 	
-	universal_barrier_group->barrier_wait();
-	uint64_t end_time = get_time();
 
 	uint64_t dt = end_time - start_time;
 	printf("num_completed_transfers = %d\n", (int)num_completed_transfers);
@@ -973,7 +1074,7 @@ int main(int argc, char *argv[]) {
 		active_senders(false, true);
 		active_senders(true, false);
 	} else if(strcmp(argv[1], "cosmos") == 0) {
-		cosmos(9);
+		cosmos(20);
     } else if(strcmp(argv[1], "test_create_group_failure") == 0) {
         test_create_group_failure();
         exit(0);
