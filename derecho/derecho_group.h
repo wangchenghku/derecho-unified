@@ -194,6 +194,8 @@ class DerechoGroup {
 private:
     /** vector of member id's */
     std::vector<node_id_t> members;
+    /** inverse map of node_ids to sst_row */
+    std::map<node_id_t, uint32_t> node_id_to_sst_index;
     /**  number of members */
     const int num_members;
     /** index of the local node in the members vector, which should also be its row index in the SST */
@@ -208,6 +210,9 @@ private:
     const rdmc::send_algorithm type;
     const unsigned int window_size;
     const CallbackSet callbacks;
+    const SubgroupInfo subgroup_info;
+    std::map<uint32_t, pair<uint32_t, uint32_t>> subgroup_to_shard_n_index;
+    std::map<pair<pair<uint32_t, uint32_t>, uint32_t>> subgroup_to_rdmc_group;
     dispatcherType dispatchers;
     tcp::tcp_connections connections;
     std::queue<std::unique_ptr<PendingBase>> toFulfillQueue;
@@ -220,7 +225,7 @@ private:
     unsigned int total_message_buffers;
     /** Stores message buffers not currently in use. Protected by
      * msg_state_mtx */
-    std::vector<MessageBuffer> free_message_buffers;
+    std::map<uint32_t, std::vector<MessageBuffer>> free_message_buffers;
     std::unique_ptr<char[]> p2pBuffer;
     std::unique_ptr<char[]> deliveryBuffer;
 
@@ -240,18 +245,19 @@ private:
     std::experimental::optional<Message> next_send;
     /** Messages that are ready to be sent, but must wait until the current send finishes. */
     std::queue<Message> pending_sends;
-    /** The message that is currently being sent out using RDMC, or boost::none otherwise. */
-    std::experimental::optional<Message> current_send;
+    /** Vector of messages that are currently being sent out using RDMC, or boost::none otherwise. */
+    /** one per subgroup */
+    std::vector<std::experimental::optional<Message>> current_sends;
 
     /** Messages that are currently being received. */
-    std::map<long long int, Message> current_receives;
+    std::map<pair<uint32_t, long long int>, Message> current_receives;
 
     /** Messages that have finished sending/receiving but aren't yet globally stable */
-    std::map<long long int, Message> locally_stable_messages;
+    std::map<uint32_t, map<long long int, Message>> locally_stable_messages;
     /** Messages that are currently being written to persistent storage */
     std::map<long long int, Message> non_persistent_messages;
 
-    long long int next_message_to_deliver = 0;
+    std::map<uint32_t, long long int> next_message_to_deliver = 0;
     std::mutex msg_state_mtx;
     std::condition_variable sender_cv;
 
@@ -301,7 +307,7 @@ public:
     DerechoGroup(
         std::vector<node_id_t> _members, node_id_t my_node_id,
         std::shared_ptr<DerechoSST> _sst,
-        std::vector<MessageBuffer>& free_message_buffers,
+        std::vector<std::vector<MessageBuffer>>& free_message_buffers,
         dispatcherType _dispatchers,
         CallbackSet callbacks,
         const DerechoParams derecho_params,

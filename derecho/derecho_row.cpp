@@ -39,11 +39,10 @@ void DerechoSST::init_local_row_at_vid(const int vid) {
     }
     memset(const_cast<char*>(joiner_ip[my_row]), 0, MAX_STRING_LEN);
     nChanges[my_row] = vid;
-    nCommitted[my_row] = vid ;
+    nCommitted[my_row] = vid;
     nAcked[my_row] = vid;
     wedged[my_row] = false;
     globalMinReady[my_row] = false;
-
 }
 
 std::string DerechoSST::to_string() const {
@@ -83,11 +82,10 @@ namespace gmssst {
  * @param element A reference to the cstring member to set
  * @param value The value to set it to, as a C++ string.
  */
-void set(volatile cstring& element, const std::string &value) {
-    strcpy(const_cast<cstring &>(element), value.c_str());
+void set(volatile cstring& element, const std::string& value) {
+    strcpy(const_cast<cstring&>(element), value.c_str());
     std::atomic_signal_fence(std::memory_order_acq_rel);
 }
-
 
 /**
  * Thread-safe setter for DerechoSST members that use SSTFieldVector<char> to
@@ -99,7 +97,6 @@ void set(volatile char* string_array, const std::string& value) {
     strcpy(const_cast<char*>(string_array), value.c_str());
     std::atomic_signal_fence(std::memory_order_acq_rel);
 }
-
 
 /**
  * Thread-safe increment of an integer member of GMSTableRow; ensures there is

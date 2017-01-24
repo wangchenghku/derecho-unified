@@ -90,7 +90,7 @@ public:
      * @param curr_vid The last stable VID known by the GMS; default is 0
      * (meaning this is the first time a Derecho SST has been created).
      */
-  DerechoSST(const sst::SSTParams& parameters, const uint32_t num_subgroups, const uint32_t nReceived_size, const uint32_t curr_vid = 0)
+    DerechoSST(const sst::SSTParams& parameters, const uint32_t num_subgroups, const uint32_t nReceived_size, const uint32_t curr_vid = 0)
             : sst::SST<DerechoSST>(this, parameters),
               seq_num(num_subgroups),
               stable_num(num_subgroups),
@@ -136,7 +136,6 @@ public:
      */
     std::string to_string() const;
 };
-
 
 /**
  * Utility functions for manipulating GMSTableRow objects; SST rows can't have
@@ -229,7 +228,6 @@ void set(volatile Arr(&dst)[L1], const volatile Arr(&src)[L2], const size_t& num
     }
     std::atomic_signal_fence(std::memory_order_acq_rel);
 }
-
 
 void set(volatile char* string_array, const std::string& value);
 

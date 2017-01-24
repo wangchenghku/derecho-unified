@@ -15,13 +15,13 @@ using std::map;
 #include "managed_group.h"
 #include "view.h"
 
-void query_node_info(derecho::node_id_t& node_id, derecho::ip_addr& node_ip, derecho::ip_addr& leader_ip) {
-     cout << "Please enter this node's ID: ";
-     cin >> node_id;
-     cout << "Please enter this node's IP address: ";
-     cin >> node_ip;
-     cout << "Please enter the leader node's IP address: ";
-     cin >> leader_ip;
+void query_node_info(derecho::node_id_t &node_id, derecho::ip_addr &node_ip, derecho::ip_addr &leader_ip) {
+    cout << "Please enter this node's ID: ";
+    cin >> node_id;
+    cout << "Please enter this node's IP address: ";
+    cin >> node_ip;
+    cout << "Please enter the leader node's IP address: ";
+    cin >> leader_ip;
 }
 
 int main(int argc, char *argv[]) {
@@ -63,13 +63,12 @@ int main(int argc, char *argv[]) {
         Dispatcher<> empty_dispatcher(node_id);
         std::unique_ptr<derecho::ManagedGroup<Dispatcher<>>> managed_group;
 
-
-         if(node_id == leader_id) {
+        if(node_id == leader_id) {
             managed_group = std::make_unique<derecho::ManagedGroup<Dispatcher<>>>(
-                    my_ip, std::move(empty_dispatcher), callbacks, param_object);
+                my_ip, std::move(empty_dispatcher), callbacks, param_object);
         } else {
             managed_group = std::make_unique<derecho::ManagedGroup<Dispatcher<>>>(
-                    node_id, my_ip, leader_id, leader_ip, std::move(empty_dispatcher), callbacks);
+                node_id, my_ip, leader_id, leader_ip, std::move(empty_dispatcher), callbacks);
         }
 
         cout << "Finished constructing/joining ManagedGroup" << endl;

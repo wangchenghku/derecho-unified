@@ -100,7 +100,6 @@ public:
               my_rank(my_rank) {}
 };
 
-
 /**
  * Custom implementation of load_object for Views. The View from the swap file
  * will be used if it is newer than the View from view_file_name (according to
