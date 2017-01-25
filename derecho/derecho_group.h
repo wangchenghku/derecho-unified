@@ -211,15 +211,15 @@ private:
     const unsigned int window_size;
     const CallbackSet callbacks;
     const SubgroupInfo subgroup_info;
-    std::map<uint32_t, pair<uint32_t, uint32_t>> subgroup_to_shard_n_index;
-    std::map<pair<pair<uint32_t, uint32_t>, uint32_t>> subgroup_to_rdmc_group;
+    std::map<uint32_t, std::pair<uint32_t, uint32_t>> subgroup_to_shard_n_index;
+    std::map<std::pair<uint32_t, uint32_t>, uint32_t> subgroup_to_rdmc_group;
     dispatcherType dispatchers;
     tcp::tcp_connections connections;
     std::queue<std::unique_ptr<PendingBase>> toFulfillQueue;
     std::list<std::unique_ptr<PendingBase>> fulfilledList;
     std::mutex pending_results_mutex;
     /** Offset to add to member ranks to form RDMC group numbers. */
-    const uint16_t rdmc_group_num_offset;
+    uint16_t rdmc_group_num_offset;
     /** false if RDMC groups haven't been created successfully */
     bool rdmc_groups_created = false;
     unsigned int total_message_buffers;
@@ -236,24 +236,24 @@ private:
     // /** memory regions wrapping the buffers for RDMA ops */
     // std::vector<std::shared_ptr<rdma::memory_region> > mrs;
 
-    /** Index to be used the next time get_position is called.
+    /** Index to be used the next time get_sendbuffer_ptr is called.
      * When next_message is not none, then next_message.index = future_message_index-1 */
-    long long int future_message_index = 0;
+    std::vector<long long int> future_message_indices;
 
     /** next_message is the message that will be sent when send is called the next time.
      * It is boost::none when there is no message to send. */
-    std::experimental::optional<Message> next_send;
+    std::vector<std::experimental::optional<Message>> next_sends;
     /** Messages that are ready to be sent, but must wait until the current send finishes. */
-    std::queue<Message> pending_sends;
+    std::vector<std::queue<Message>> pending_sends;
     /** Vector of messages that are currently being sent out using RDMC, or boost::none otherwise. */
     /** one per subgroup */
     std::vector<std::experimental::optional<Message>> current_sends;
 
     /** Messages that are currently being received. */
-    std::map<pair<uint32_t, long long int>, Message> current_receives;
+    std::map<std::pair<uint32_t, long long int>, Message> current_receives;
 
     /** Messages that have finished sending/receiving but aren't yet globally stable */
-    std::map<uint32_t, map<long long int, Message>> locally_stable_messages;
+    std::map<uint32_t, std::map<long long int, Message>> locally_stable_messages;
     /** Messages that are currently being written to persistent storage */
     std::map<long long int, Message> non_persistent_messages;
 
@@ -295,12 +295,11 @@ private:
     void initialize_sst_row();
     void register_predicates();
 
-    void deliver_message(Message& msg);
+    void deliver_message(Message& msg, uint32_t subgroup_num, uint32_t shard_rank);
     template <typename IdClass, unsigned long long tag, typename... Args>
     auto derechoCallerSend(const std::vector<node_id_t>& nodes, char* buf, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
     auto tcpSend(node_id_t dest_node, Args&&... args);
-    // private get_position - used for cooked send
 
 public:
     // the constructor - takes the list of members, send parameters (block size, buffer size), K0 and K1 callbacks
@@ -310,6 +309,7 @@ public:
         std::vector<std::vector<MessageBuffer>>& free_message_buffers,
         dispatcherType _dispatchers,
         CallbackSet callbacks,
+        SubgroupInfo subgroup_info,
         const DerechoParams derecho_params,
         std::map<node_id_t, std::string> ip_addrs,
         std::vector<char> already_failed = {});
@@ -322,11 +322,11 @@ public:
         std::vector<char> already_failed = {}, uint32_t rpc_port = 12487);
     ~DerechoGroup();
 
-    void deliver_messages_upto(const std::vector<long long int>& max_indices_for_senders);
+    void deliver_messages_upto(const std::vector<long long int>& max_indices_for_senders, uint32_t subgroup_num, uint32_t shard_rank, uint32_t num_shard_members);
     /** get a pointer into the buffer, to write data into it before sending */
-    char* get_position(long long unsigned int payload_size,
+  char* get_sendbuffer_ptr(uint32_t subgroup_num, long long unsigned int payload_size,
                        int pause_sending_turns = 0, bool cooked_send = false);
-    /** Note that get_position and send are called one after the another - regexp for using the two is (get_position.send)*
+  /** Note that get_sendbuffer_ptr and send are called one after the another - regexp for using the two is (get_sendbuffer_ptr.send)*
      * This still allows making multiple send calls without acknowledgement; at a single point in time, however,
      * there is only one message per sender in the RDMC pipeline */
     bool send();

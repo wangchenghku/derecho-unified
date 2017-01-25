@@ -893,7 +893,7 @@ void ManagedGroup<dispatcherType>::leave() {
 template <typename dispatcherType>
 char* ManagedGroup<dispatcherType>::get_sendbuffer_ptr(unsigned long long int payload_size, int pause_sending_turns, bool cooked_send) {
     lock_guard_t lock(view_mutex);
-    return curr_view->derecho_group->get_position(payload_size, pause_sending_turns, cooked_send);
+    return curr_view->derecho_group->get_sendbuffer_ptr(payload_size, pause_sending_turns, cooked_send);
 }
 
 template <typename dispatcherType>
@@ -1017,7 +1017,7 @@ uint32_t ManagedGroup<dispatcherType>::calc_nReceived_size() {
         auto num_shards = subgroup_info.num_shards(num_members, i);
         uint32_t max_shard_members = 0;
         for(uint j = 0; j < num_shards; ++j) {
-            auto shard_size = subgroup_membership(num_members, i, j).size();
+            auto shard_size = subgroup_info.subgroup_membership(num_members, i, j).size();
             if(shard_size > max_shard_members) {
                 max_shard_members = shard_size;
             }
