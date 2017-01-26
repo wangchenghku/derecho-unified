@@ -136,10 +136,10 @@ private:
     std::unique_ptr<View<dispatcherType>> join_existing(const node_id_t my_id, const ip_addr& leader_ip, const int leader_port);
 
     // Ken's helper methods
-    void deliver_in_order(const View<dispatcherType>& Vc, int Leader);
+    void deliver_in_order(const View<dispatcherType>& Vc, const int shard_leader_rank, const uint32_t subgroup_num, const uint32_t nReceived_offset, const std::vector<node_id_t>& shard_members);
     void ragged_edge_cleanup(View<dispatcherType>& Vc);
-    void leader_ragged_edge_cleanup(View<dispatcherType>& Vc);
-    void follower_ragged_edge_cleanup(View<dispatcherType>& Vc);
+    void leader_ragged_edge_cleanup(View<dispatcherType>& Vc, const uint32_t subgroup_num, const uint32_t nReceived_offset, const std::vector<node_id_t>& shard_members);
+    void follower_ragged_edge_cleanup(View<dispatcherType>& Vc, const uint32_t subgroup_num, const uint32_t nReceived_offset, const std::vector<node_id_t>& shard_members);
 
     static bool suspected_not_equal(const DerechoSST& gmsSST, const std::vector<bool>& old);
     static void copy_suspected(const DerechoSST& gmsSST, std::vector<bool>& old);
@@ -156,8 +156,7 @@ private:
 
     /** Creates the SST and derecho_group for the current view, using the current view's member list.
      * The parameters are all the possible parameters for constructing derecho_group. */
-  void setup_derecho(std::vector <std::vector<MessageBuffer>>& message_buffers,
-                       CallbackSet callbacks,
+  void setup_derecho(CallbackSet callbacks,
                        const DerechoParams& derecho_params);
     /** Sets up the SST and derecho_group for a new view, based on the settings in the current view
      * (and copying over the SST data from the current view). */

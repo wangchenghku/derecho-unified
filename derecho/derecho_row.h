@@ -76,7 +76,7 @@ public:
     /** Array of how many messages to accept from each sender, K1-able*/
     SSTFieldVector<int> globalMin;
     /** Must come after GlobalMin */
-    SSTField<bool> globalMinReady;
+    SSTFieldVector<bool> globalMinReady;
 
     /**
      * Constructs an SST, and initializes the GMS fields of the local row based
@@ -100,7 +100,8 @@ public:
               changes(parameters.members.size()),
               joiner_ip(MAX_STRING_LEN),
               nReceived(nReceived_size),
-              globalMin(parameters.members.size()) {
+              globalMin(nReceived_size),
+              globalMinReady(num_subgroups) {
         SSTInit(seq_num, stable_num, delivered_num,
                 persisted_num, vid, suspected, changes, joiner_ip,
                 nChanges, nCommitted, nAcked, nReceived, wedged,
@@ -112,15 +113,17 @@ public:
             vid[row] = (row == my_row ? curr_vid : 0);
             for(size_t i = 0; i < parameters.members.size(); ++i) {
                 suspected[row][i] = false;
-                globalMin[row][i] = 0;
                 changes[row][i] = 0;
+                globalMinReady[row][i] = false;
+            }
+            for(size_t i = 0; i < nReceived_size; ++i) {
+                globalMin[row][i] = 0;
             }
             memset(const_cast<char*>(joiner_ip[row]), 0, MAX_STRING_LEN);
             nChanges[row] = (row == my_row ? curr_vid : 0);
             nCommitted[row] = (row == my_row ? curr_vid : 0);
             nAcked[row] = (row == my_row ? curr_vid : 0);
             wedged[row] = false;
-            globalMinReady[row] = false;
         }
     }
 

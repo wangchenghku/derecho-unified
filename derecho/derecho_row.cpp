@@ -20,29 +20,34 @@ void DerechoSST::init_local_row_from_existing(const DerechoSST& existing_sst, co
            existing_sst.changes.size() * sizeof(node_id_t));
     for(size_t i = 0; i < suspected.size(); ++i) {
         suspected[local_row][i] = false;
+        globalMinReady[local_row][i] = false;
+    }
+    for (size_t i = 0; i < globalMin.size(); ++i) {
         globalMin[local_row][i] = 0;
     }
     nChanges[local_row] = existing_sst.nChanges[row];
     nCommitted[local_row] = existing_sst.nCommitted[row];
     nAcked[local_row] = existing_sst.nAcked[row];
     wedged[local_row] = false;
-    globalMinReady[local_row] = false;
 }
 
 void DerechoSST::init_local_row_at_vid(const int vid) {
-    int my_row = get_local_index();
-    this->vid[my_row] = vid;
+    int local_row = get_local_index();
+    this->vid[local_row] = vid;
     for(size_t i = 0; i < suspected.size(); ++i) {
-        suspected[my_row][i] = false;
-        globalMin[my_row][i] = 0;
-        changes[my_row][i] = 0;
+        suspected[local_row][i] = false;
+        globalMinReady[local_row][i] = false;
+        changes[local_row][i] = 0;
     }
-    memset(const_cast<char*>(joiner_ip[my_row]), 0, MAX_STRING_LEN);
-    nChanges[my_row] = vid;
-    nCommitted[my_row] = vid;
-    nAcked[my_row] = vid;
-    wedged[my_row] = false;
-    globalMinReady[my_row] = false;
+    for(size_t i = 0; i < globalMin.size(); ++i) {
+        globalMin[local_row][i] = 0;
+    }
+
+    memset(const_cast<char*>(joiner_ip[local_row]), 0, MAX_STRING_LEN);
+    nChanges[local_row] = vid;
+    nCommitted[local_row] = vid;
+    nAcked[local_row] = vid;
+    wedged[local_row] = false;
 }
 
 std::string DerechoSST::to_string() const {

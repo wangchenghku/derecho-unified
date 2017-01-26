@@ -296,7 +296,7 @@ private:
     void initialize_sst_row();
     void register_predicates();
 
-    void deliver_message(Message& msg, uint32_t subgroup_num, uint32_t shard_rank);
+    void deliver_message(Message& msg, uint32_t subgroup_num);
     template <typename IdClass, unsigned long long tag, typename... Args>
     auto derechoCallerSend(uint32_t subgroup_num, const std::vector<node_id_t>& nodes, char* buf, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
@@ -307,7 +307,7 @@ public:
     DerechoGroup(
         std::vector<node_id_t> _members, node_id_t my_node_id,
         std::shared_ptr<DerechoSST> _sst,
-        std::vector<std::vector<MessageBuffer>>& free_message_buffers,
+        std::vector<std::vector<MessageBuffer>>& _free_message_buffers,
         dispatcherType _dispatchers,
         CallbackSet callbacks,
         SubgroupInfo subgroup_info,
@@ -323,7 +323,7 @@ public:
         std::vector<char> already_failed = {}, uint32_t rpc_port = 12487);
     ~DerechoGroup();
 
-    void deliver_messages_upto(const std::vector<long long int>& max_indices_for_senders, uint32_t subgroup_num, uint32_t shard_rank, uint32_t num_shard_members);
+    void deliver_messages_upto(const std::vector<long long int>& max_indices_for_senders, uint32_t subgroup_num, uint32_t num_shard_members);
     /** get a pointer into the buffer, to write data into it before sending */
   char* get_sendbuffer_ptr(uint32_t subgroup_num, long long unsigned int payload_size,
                        int pause_sending_turns = 0, bool cooked_send = false);
@@ -354,6 +354,12 @@ public:
     static long long unsigned int compute_max_msg_size(
         const long long unsigned int max_payload_size,
         const long long unsigned int block_size);
+    const std::map<uint32_t, std::pair<uint32_t, uint32_t>>& get_subgroup_to_shard_n_index() {
+        return subgroup_to_shard_n_index;
+    }
+    const std::map<uint32_t, uint32_t>& get_subgroup_to_nReceived_offset() {
+        return subgroup_to_nReceived_offset;
+    }
 };
 }  // namespace derecho
 

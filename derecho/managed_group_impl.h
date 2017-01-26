@@ -67,9 +67,8 @@ ManagedGroup<dispatcherType>::ManagedGroup(
         persist_object(derecho_params, params_file_name);
     }
 
-    auto message_buffers = create_message_buffers();
     log_event("Initializing SST and RDMC for the first time.");
-    setup_derecho(message_buffers, callbacks, derecho_params);
+    setup_derecho(callbacks, derecho_params);
     curr_view->gmsSST->put();
     curr_view->gmsSST->sync_with_members();
     log_event("Done setting up initial SST and RDMC");
@@ -128,8 +127,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(const node_id_t my_id,
     }
     log_event("Initializing SST and RDMC for the first time.");
 
-    auto message_buffers = create_message_buffers();
-    setup_derecho(message_buffers, callbacks, derecho_params);
+    setup_derecho(callbacks, derecho_params);
     curr_view->gmsSST->put();
     curr_view->gmsSST->sync_with_members();
     log_event("Done setting up initial SST and RDMC");
@@ -215,10 +213,8 @@ ManagedGroup<dispatcherType>::ManagedGroup(const std::string& recovery_filename,
     persist_object(*curr_view, view_file_name);
     persist_object(derecho_params, params_file_name);
 
-    auto message_buffers = create_message_buffers ();
     log_event("Initializing SST and RDMC for the first time.");
-    setup_derecho(message_buffers,
-                  callbacks,
+    setup_derecho(callbacks,
                   derecho_params);
     curr_view->gmsSST->put();
     curr_view->gmsSST->sync_with_members();
@@ -599,9 +595,9 @@ ManagedGroup<dispatcherType>::~ManagedGroup() {
 }
 
 template <typename dispatcherType>
-void ManagedGroup<dispatcherType>::setup_derecho(std::vector<std::vector<MessageBuffer>>& message_buffers,
-                                                 CallbackSet callbacks,
+void ManagedGroup<dispatcherType>::setup_derecho(CallbackSet callbacks,
                                                  const DerechoParams& derecho_params) {
+    auto message_buffers = create_message_buffers();
     curr_view->gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
                                                          curr_view->members, curr_view->members[curr_view->my_rank],
                                                          [this](const uint32_t node_id) { report_failure(node_id); }, curr_view->failed, false),
@@ -768,79 +764,98 @@ int ManagedGroup<dispatcherType>::min_acked(const DerechoSST& gmsSST, const std:
 }
 
 template <typename dispatcherType>
-void ManagedGroup<dispatcherType>::deliver_in_order(const View<dispatcherType>& Vc, int Leader) {
+void ManagedGroup<dispatcherType>::deliver_in_order(const View<dispatcherType>& Vc, const int shard_leader_rank, const uint32_t subgroup_num, const uint32_t nReceived_offset, const std::vector<node_id_t>& shard_members) {
     // Ragged cleanup is finished, deliver in the implied order
     std::vector<long long int> max_received_indices(Vc.num_members);
     std::string deliveryOrder(" ");
-    for(int n = 0; n < Vc.num_members; n++) {
-        deliveryOrder += std::to_string(Vc.members[Vc.my_rank]) +
+    for(uint n = 0; n < shard_members.size(); n++) {
+      deliveryOrder += "Subgroup " + std::to_string(subgroup_num) + " " + std::to_string(Vc.members[Vc.my_rank]) +
                          std::string(":0..") +
-                         std::to_string(Vc.gmsSST->globalMin[Leader][n]) +
+	  std::to_string(Vc.gmsSST->globalMin[shard_leader_rank][nReceived_offset + n]) +
                          std::string(" ");
-        max_received_indices[n] = Vc.gmsSST->globalMin[Leader][n];
+      max_received_indices[n] = Vc.gmsSST->globalMin[shard_leader_rank][nReceived_offset + n];
     }
     util::debug_log().log_event("Delivering ragged-edge messages in order: " +
                                 deliveryOrder);
     //    std::cout << "Delivery Order (View " << Vc.vid << ") {" <<
     //    deliveryOrder << std::string("}") << std::endl;
-    Vc.derecho_group->deliver_messages_upto(max_received_indices);
+    Vc.derecho_group->deliver_messages_upto(max_received_indices, subgroup_num, shard_members.size());
 }
 
 template <typename dispatcherType>
 void ManagedGroup<dispatcherType>::ragged_edge_cleanup(View<dispatcherType>& Vc) {
     util::debug_log().log_event("Running RaggedEdgeCleanup");
-    if(Vc.IAmLeader()) {
-        leader_ragged_edge_cleanup(Vc);
-    } else {
-        follower_ragged_edge_cleanup(Vc);
+    uint32_t num_members = Vc.members.size();
+    const auto subgroup_to_shard_n_index = Vc.derecho_group->get_subgroup_to_shard_n_index();
+    const auto subgroup_to_nReceived_offset = Vc.derecho_group->get_subgroup_to_nReceived_offset();
+    for (const auto p : subgroup_to_shard_n_index) {
+      const auto subgroup_num = p.first;
+      const auto shard_num = p.second.first;
+      const auto index = p.second.second;
+      const auto nReceived_offset = subgroup_to_nReceived_offset.at(subgroup_num);
+      const auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
+
+      if (index == 0) {
+	leader_ragged_edge_cleanup(Vc, subgroup_num, nReceived_offset-index, shard_members);
+      }
+      else {
+	follower_ragged_edge_cleanup(Vc, subgroup_num, nReceived_offset-index, shard_members);
+      }
     }
+    // if(Vc.IAmLeader()) {
+    //     leader_ragged_edge_cleanup(Vc);
+    // } else {
+    //     follower_ragged_edge_cleanup(Vc);
+    // }
     util::debug_log().log_event("Done with RaggedEdgeCleanup");
 }
 
 template <typename dispatcherType>
-void ManagedGroup<dispatcherType>::leader_ragged_edge_cleanup(View<dispatcherType>& Vc) {
+void ManagedGroup<dispatcherType>::leader_ragged_edge_cleanup(View<dispatcherType>& Vc, const uint32_t subgroup_num, const uint32_t nReceived_offset, const std::vector<node_id_t>& shard_members) {
     int myRank = Vc.my_rank;
-    int Leader = Vc.rank_of_leader();  // We don't want this to change under our feet
+    // int Leader = Vc.rank_of_leader();  // We don't want this to change under our feet
     bool found = false;
-    for(int n = 0; n < Vc.num_members && !found; n++) {
-        if(Vc.gmsSST->globalMinReady[n]) {
-            gmssst::set(Vc.gmsSST->globalMin[myRank],
-                        Vc.gmsSST->globalMin[n], Vc.num_members);
+    for(uint n = 0; n < shard_members.size() && !found; n++) {
+        if(Vc.gmsSST->globalMinReady[n][subgroup_num]) {
+            gmssst::set(Vc.gmsSST->globalMin[myRank] + nReceived_offset,
+                        Vc.gmsSST->globalMin[n] + nReceived_offset, shard_members.size());
             found = true;
         }
     }
 
     if(!found) {
-        for(int n = 0; n < Vc.num_members; n++) {
-            int min = Vc.gmsSST->nReceived[myRank][n];
-            for(int r = 0; r < Vc.num_members; r++) {
-                if(/*!Vc.failed[r] && */ min > Vc.gmsSST->nReceived[r][n]) {
-                    min = Vc.gmsSST->nReceived[r][n];
+        for(uint n = 0; n < shard_members.size(); n++) {
+            int min = Vc.gmsSST->nReceived[myRank][nReceived_offset + n];
+            for(uint r = 0; r < shard_members.size(); r++) {
+	      const auto node_id = shard_members[r];
+	      const auto node_rank = Vc.rank_of(node_id);
+                if(/*!Vc.failed[r] && */ min > Vc.gmsSST->nReceived[node_rank][nReceived_offset + n]) {
+                    min = Vc.gmsSST->nReceived[node_rank][nReceived_offset + n];
                 }
             }
 
-            gmssst::set(Vc.gmsSST->globalMin[myRank][n], min);
+            gmssst::set(Vc.gmsSST->globalMin[myRank][nReceived_offset + n], min);
         }
     }
 
-    util::debug_log().log_event("Leader finished computing globalMin");
-    gmssst::set(Vc.gmsSST->globalMinReady[myRank], true);
+    util::debug_log().log_event("Shard leader finished computing globalMin");
+    gmssst::set(Vc.gmsSST->globalMinReady[myRank][subgroup_num], true);
     Vc.gmsSST->put();
 
-    deliver_in_order(Vc, Leader);
+    deliver_in_order(Vc, myRank, subgroup_num, nReceived_offset, shard_members);
 }
 
 template <typename dispatcherType>
-void ManagedGroup<dispatcherType>::follower_ragged_edge_cleanup(View<dispatcherType>& Vc) {
+void ManagedGroup<dispatcherType>::follower_ragged_edge_cleanup(View<dispatcherType>& Vc, const uint32_t subgroup_num, const uint32_t nReceived_offset, const std::vector<node_id_t>& shard_members) {
     int myRank = Vc.my_rank;
     // Learn the leader's data and push it before acting upon it
     util::debug_log().log_event("Received leader's globalMin; echoing it");
-    int Leader = Vc.rank_of_leader();
-    gmssst::set(Vc.gmsSST->globalMin[myRank], Vc.gmsSST->globalMin[Leader],
-                Vc.num_members);
-    gmssst::set(Vc.gmsSST->globalMinReady[myRank], true);
+    int shard_leader_rank = Vc.rank_of(shard_members[0]);
+    gmssst::set(Vc.gmsSST->globalMin[myRank] + nReceived_offset, Vc.gmsSST->globalMin[shard_leader_rank] + nReceived_offset,
+                shard_members.size());
+    gmssst::set(Vc.gmsSST->globalMinReady[myRank][subgroup_num], true);
     Vc.gmsSST->put();
-    deliver_in_order(Vc, Leader);
+    deliver_in_order(Vc, shard_leader_rank, subgroup_num, nReceived_offset, shard_members);
 }
 
 /* ------------------------------------------------------------------------- */
