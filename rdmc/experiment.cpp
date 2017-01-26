@@ -220,6 +220,27 @@ void cosmos(float timescale){
              }
         });
     }
+
+
+	std::thread cpu_monitor_thread;
+	vector<float> cpu_measurements;
+	atomic<bool> stop_cpu_monitor;
+	stop_cpu_monitor = false;
+	auto monitor_cpu = [&stop_cpu_monitor, &cpu_measurements]{
+		uint64_t last_time = get_time();
+		uint64_t last_ptime = get_process_time();
+		
+		while(!stop_cpu_monitor) {
+			std::this_thread::sleep_for(std::chrono::seconds(10));
+
+			uint64_t time = get_time();
+			uint64_t ptime = get_process_time();
+			cpu_measurements.emplace_back(100.0 * (ptime-last_ptime) / (time - last_time));
+			last_time = time;
+			last_ptime = ptime;
+		}
+	};
+	
 	
 	for(auto&& g : groups) {
 		uint16_t group_number = next_group_number++;
@@ -303,7 +324,7 @@ void cosmos(float timescale){
 		};
 		vector<transfer> transfers;
 		double first_time = 0;
-		while(transfers.size() < 100000) {
+		while(transfers.size() < 20000) {
 			char replicas[1024];
 			unsigned long long uncompressed, compressed, level;
 			unsigned int year, month, day, hour, minute;
@@ -361,6 +382,7 @@ void cosmos(float timescale){
 		CHECK(rdmc::send(control_group_number, control_mr, 0, sizeof(control_message)));
 		universal_barrier_group->barrier_wait();
 
+		cpu_monitor_thread = std::thread(monitor_cpu);
 		start_time = get_time();
 		uint64_t next_send_time = start_time;
 
@@ -406,14 +428,16 @@ void cosmos(float timescale){
 			}
 		}
 		puts("Waiting for transfers to complete");
-		while(num_completed_transfers < transfers.size()) {}
+		while(num_completed_transfers < transfers.size()) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
 		puts("Waiting for rest of ACKS");
 		while(acks_remaining > 0) {}
 		universal_barrier_group->barrier_wait();
 		end_time = get_time();
 
 		// Nanoseconds per bin.
-		const uint64_t resolution = 1000'000'000;
+		const uint64_t resolution = 5000'000'000;
 		
 		uint64_t dt = end_time - start_time;
 		unsigned long long nbins = (dt-1) / resolution + 1;
@@ -439,8 +463,9 @@ void cosmos(float timescale){
 				bins[b] += 8.0 * transfers[t].size * (e-s) / (etime - stime);
 			}
 		}
-		for(auto bin : bins) {
-			printf("%f\n", (double)bin / resolution);
+		printf("Bandwidth Measurements\nTime, Bandwidth\n");
+		for(size_t i = 0; i < bins.size(); i++) {
+			printf("%f, %f\n", i / 60.0 * resolution * 1e-9, (double)bins[i] / resolution);
 		}
 	} else {
 		ack_qps.emplace_back(0);
@@ -455,15 +480,27 @@ void cosmos(float timescale){
 		while(!control_message_arrived);
         puts("Got Control Message");
 		universal_barrier_group->barrier_wait();
+		cpu_monitor_thread = std::thread(monitor_cpu);
 		start_time = get_time();
 		puts("Did barrier");
-		while(num_completed_transfers < ((control_message*)control_mr->buffer)->nodes[node_rank].total_transfers);
+		while(num_completed_transfers < ((control_message*)control_mr->buffer)->nodes[node_rank].total_transfers){
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
+		}
 		universal_barrier_group->barrier_wait();
 		end_time = get_time();
 	}
 	
 
 	uint64_t dt = end_time - start_time;
+
+	stop_cpu_monitor = true;
+	cpu_monitor_thread.join();
+
+	printf("\ncpu measurements\nTime, Load\n");
+	for(size_t i = 0; i < cpu_measurements.size(); i++) {
+		printf("%f, %f\n", i / 6.0, cpu_measurements[i]);
+	}
+	
 	printf("num_completed_transfers = %d\n", (int)num_completed_transfers);
 	printf("num_groups = %d\n", (int)num_groups);
 	printf("Latency of final message = %f ms\n",
@@ -1074,6 +1111,7 @@ int main(int argc, char *argv[]) {
 		active_senders(false, true);
 		active_senders(true, false);
 	} else if(strcmp(argv[1], "cosmos") == 0) {
+		rdma::impl::set_interrupt_mode(true);
 		cosmos(20);
     } else if(strcmp(argv[1], "test_create_group_failure") == 0) {
         test_create_group_failure();
