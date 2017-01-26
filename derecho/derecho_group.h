@@ -197,7 +197,7 @@ private:
     /** inverse map of node_ids to sst_row */
     std::map<node_id_t, uint32_t> node_id_to_sst_index;
     /**  number of members */
-    const int num_members;
+    const uint32_t num_members;
     /** index of the local node in the members vector, which should also be its row index in the SST */
     const int member_index;
     /** Block size used for message transfer.
@@ -212,7 +212,8 @@ private:
     const CallbackSet callbacks;
     const SubgroupInfo subgroup_info;
     std::map<uint32_t, std::pair<uint32_t, uint32_t>> subgroup_to_shard_n_index;
-    std::map<std::pair<uint32_t, uint32_t>, uint32_t> subgroup_to_rdmc_group;
+    std::map<uint32_t, uint32_t> subgroup_to_nReceived_offset;
+    std::map<uint32_t, uint32_t> subgroup_to_rdmc_group;
     dispatcherType dispatchers;
     tcp::tcp_connections connections;
     std::queue<std::unique_ptr<PendingBase>> toFulfillQueue;
@@ -257,7 +258,7 @@ private:
     /** Messages that are currently being written to persistent storage */
     std::map<long long int, Message> non_persistent_messages;
 
-    std::map<uint32_t, long long int> next_message_to_deliver = 0;
+    std::vector<long long int> next_message_to_deliver;
     std::mutex msg_state_mtx;
     std::condition_variable sender_cv;
 
@@ -297,7 +298,7 @@ private:
 
     void deliver_message(Message& msg, uint32_t subgroup_num, uint32_t shard_rank);
     template <typename IdClass, unsigned long long tag, typename... Args>
-    auto derechoCallerSend(const std::vector<node_id_t>& nodes, char* buf, Args&&... args);
+    auto derechoCallerSend(uint32_t subgroup_num, const std::vector<node_id_t>& nodes, char* buf, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
     auto tcpSend(node_id_t dest_node, Args&&... args);
 
@@ -329,15 +330,15 @@ public:
   /** Note that get_sendbuffer_ptr and send are called one after the another - regexp for using the two is (get_sendbuffer_ptr.send)*
      * This still allows making multiple send calls without acknowledgement; at a single point in time, however,
      * there is only one message per sender in the RDMC pipeline */
-    bool send();
+    bool send(uint32_t subgroup_num);
     template <typename IdClass, unsigned long long tag, typename... Args>
-    void orderedSend(const std::vector<node_id_t>& nodes, char* buf, Args&&... args);
+    void orderedSend(uint32_t subgroup_num, const std::vector<node_id_t>& nodes, char* buf, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
-    void orderedSend(char* buf, Args&&... args);
+    void orderedSend(uint32_t subgroup_num, char* buf, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
-    auto orderedQuery(const std::vector<node_id_t>& nodes, char* buf, Args&&... args);
+    auto orderedQuery(uint32_t subgroup_num, const std::vector<node_id_t>& nodes, char* buf, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
-    auto orderedQuery(char* buf, Args&&... args);
+    auto orderedQuery(uint32_t subgroup_num, char* buf, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
     void p2pSend(node_id_t dest_node, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>

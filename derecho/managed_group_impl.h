@@ -67,12 +67,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(
         persist_object(derecho_params, params_file_name);
     }
 
-    std::vector<MessageBuffer> message_buffers;
-    auto max_msg_size = DerechoGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
-    while(message_buffers.size() < derecho_params.window_size * MAX_MEMBERS) {
-        message_buffers.emplace_back(max_msg_size);
-    }
-
+    auto message_buffers = create_message_buffers();
     log_event("Initializing SST and RDMC for the first time.");
     setup_derecho(message_buffers, callbacks, derecho_params);
     curr_view->gmsSST->put();
@@ -133,11 +128,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(const node_id_t my_id,
     }
     log_event("Initializing SST and RDMC for the first time.");
 
-    std::vector<MessageBuffer> message_buffers;
-    auto max_msg_size = DerechoGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
-    while(message_buffers.size() < derecho_params.window_size * MAX_MEMBERS) {
-        message_buffers.emplace_back(max_msg_size);
-    }
+    auto message_buffers = create_message_buffers();
     setup_derecho(message_buffers, callbacks, derecho_params);
     curr_view->gmsSST->put();
     curr_view->gmsSST->sync_with_members();
@@ -224,12 +215,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(const std::string& recovery_filename,
     persist_object(*curr_view, view_file_name);
     persist_object(derecho_params, params_file_name);
 
-    std::vector<MessageBuffer> message_buffers;
-    auto max_msg_size = DerechoGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
-    while(message_buffers.size() < derecho_params.window_size * MAX_MEMBERS) {
-        message_buffers.emplace_back(max_msg_size);
-    }
-
+    auto message_buffers = create_message_buffers ();
     log_event("Initializing SST and RDMC for the first time.");
     setup_derecho(message_buffers,
                   callbacks,
@@ -613,7 +599,7 @@ ManagedGroup<dispatcherType>::~ManagedGroup() {
 }
 
 template <typename dispatcherType>
-void ManagedGroup<dispatcherType>::setup_derecho(std::vector<MessageBuffer>& message_buffers,
+void ManagedGroup<dispatcherType>::setup_derecho(std::vector<std::vector<MessageBuffer>>& message_buffers,
                                                  CallbackSet callbacks,
                                                  const DerechoParams& derecho_params) {
     curr_view->gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
@@ -625,7 +611,7 @@ void ManagedGroup<dispatcherType>::setup_derecho(std::vector<MessageBuffer>& mes
 
     curr_view->derecho_group = std::make_unique<DerechoGroup<dispatcherType>>(
         curr_view->members, curr_view->members[curr_view->my_rank],
-        curr_view->gmsSST, message_buffers, std::move(dispatchers), callbacks, derecho_params,
+        curr_view->gmsSST, message_buffers, std::move(dispatchers), callbacks, subgroup_info, derecho_params,
         get_member_ips_map(curr_view->members, curr_view->member_ips, curr_view->failed),
         curr_view->failed);
 }
@@ -640,7 +626,7 @@ void ManagedGroup<dispatcherType>::transition_sst_and_rdmc(View<dispatcherType>&
     newView.gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
                                                       newView.members, newView.members[newView.my_rank],
                                                       [this](const uint32_t node_id) { report_failure(node_id); }, newView.failed, false),
-                                                  subgroup_info.num_subgroups(curr_view->members.size()), calc_nReceived_size(subgroup_info));
+                                                  subgroup_info.num_subgroups(curr_view->members.size()), calc_nReceived_size());
     std::cout << "Going to create the derecho group" << std::endl;
     newView.derecho_group = std::make_unique<DerechoGroup<dispatcherType>>(
         newView.members, newView.members[newView.my_rank], newView.gmsSST,
@@ -891,67 +877,67 @@ void ManagedGroup<dispatcherType>::leave() {
 }
 
 template <typename dispatcherType>
-char* ManagedGroup<dispatcherType>::get_sendbuffer_ptr(unsigned long long int payload_size, int pause_sending_turns, bool cooked_send) {
+char* ManagedGroup<dispatcherType>::get_sendbuffer_ptr(uint32_t subgroup_num, unsigned long long int payload_size, int pause_sending_turns, bool cooked_send) {
     lock_guard_t lock(view_mutex);
     return curr_view->derecho_group->get_sendbuffer_ptr(payload_size, pause_sending_turns, cooked_send);
 }
 
 template <typename dispatcherType>
-void ManagedGroup<dispatcherType>::send() {
+void ManagedGroup<dispatcherType>::send(uint32_t subgroup_num) {
     std::unique_lock<std::mutex> lock(view_mutex);
     while(true) {
-        if(curr_view->derecho_group->send()) break;
+        if(curr_view->derecho_group->send(subgroup_num)) break;
         view_change_cv.wait(lock);
     }
 }
 
 template <typename dispatcherType>
 template <typename IdClass, unsigned long long tag, typename... Args>
-void ManagedGroup<dispatcherType>::orderedSend(const std::vector<node_id_t>& nodes,
+void ManagedGroup<dispatcherType>::orderedSend(uint32_t subgroup_num, const std::vector<node_id_t>& nodes,
                                                Args&&... args) {
     char* buf;
-    while(!(buf = get_sendbuffer_ptr(0, 0, true))) {
+    while(!(buf = get_sendbuffer_ptr(subgroup_num, 0, 0, true))) {
     };
 
     std::unique_lock<std::mutex> lock(view_mutex);
-    curr_view->derecho_group->template orderedSend<IdClass, tag, Args...>(
+    curr_view->derecho_group->template orderedSend<IdClass, tag, Args...>(subgroup_num,
         nodes, buf, std::forward<Args>(args)...);
 }
 
 template <typename dispatcherType>
 template <typename IdClass, unsigned long long tag, typename... Args>
-void ManagedGroup<dispatcherType>::orderedSend(Args&&... args) {
+void ManagedGroup<dispatcherType>::orderedSend(uint32_t subgroup_num, Args&&... args) {
     char* buf;
-    while(!(buf = get_sendbuffer_ptr(0, 0, true))) {
+    while(!(buf = get_sendbuffer_ptr(subgroup_num, 0, 0, true))) {
     };
 
     std::unique_lock<std::mutex> lock(view_mutex);
-    curr_view->derecho_group->template orderedSend<IdClass, tag, Args...>(buf,
+    curr_view->derecho_group->template orderedSend<IdClass, tag, Args...>(subgroup_num, buf,
                                                                           std::forward<Args>(args)...);
 }
 
 template <typename dispatcherType>
 template <typename IdClass, unsigned long long tag, typename... Args>
-auto ManagedGroup<dispatcherType>::orderedQuery(const std::vector<node_id_t>& nodes,
+auto ManagedGroup<dispatcherType>::orderedQuery(uint32_t subgroup_num, const std::vector<node_id_t>& nodes,
                                                 Args&&... args) {
     char* buf;
-    while(!(buf = get_sendbuffer_ptr(0, 0, true))) {
+    while(!(buf = get_sendbuffer_ptr(subgroup_num, 0, 0, true))) {
     };
 
     std::unique_lock<std::mutex> lock(view_mutex);
-    return curr_view->derecho_group->template orderedQuery<IdClass, tag, Args...>(
+    return curr_view->derecho_group->template orderedQuery<IdClass, tag, Args...>(subgroup_num,
         nodes, buf, std::forward<Args>(args)...);
 }
 
 template <typename dispatcherType>
 template <typename IdClass, unsigned long long tag, typename... Args>
-auto ManagedGroup<dispatcherType>::orderedQuery(Args&&... args) {
+auto ManagedGroup<dispatcherType>::orderedQuery(uint32_t subgroup_num, Args&&... args) {
     char* buf;
-    while(!(buf = get_sendbuffer_ptr(0, 0, true))) {
+    while(!(buf = get_sendbuffer_ptr(subgroup_num, 0, 0, true))) {
     };
 
     std::unique_lock<std::mutex> lock(view_mutex);
-    return curr_view->derecho_group->template orderedQuery<IdClass, tag, Args...>(buf,
+    return curr_view->derecho_group->template orderedQuery<IdClass, tag, Args...>(subgroup_num, buf,
                                                                                   std::forward<Args>(args)...);
 }
 
@@ -1010,7 +996,7 @@ std::map<node_id_t, ip_addr> ManagedGroup<dispatcherType>::get_member_ips_map(
 
 template <typename dispatcherType>
 uint32_t ManagedGroup<dispatcherType>::calc_nReceived_size() {
-    uint32_t num_members = curr_view.members.size();
+    uint32_t num_members = curr_view->members.size();
     uint32_t sum = 0;
     auto num_subgroups = subgroup_info.num_subgroups(num_members);
     for(uint i = 0; i < num_subgroups; ++i) {
@@ -1026,5 +1012,19 @@ uint32_t ManagedGroup<dispatcherType>::calc_nReceived_size() {
     }
     return sum;
 }
+
+template <typename dispatcherType>
+std::vector<std::vector<MessageBuffer>> ManagedGroup<dispatcherType>::create_message_buffers() {
+    uint32_t num_members = curr_view->members.size();
+    auto num_subgroups = subgroup_info.num_subgroups(num_members);
+    std::vector<std::vector<MessageBuffer>> message_buffers(num_subgroups);
+    auto max_msg_size = DerechoGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
+    for(uint i = 0; i < num_subgroups; ++i) {
+        while(message_buffers[i].size() < derecho_params.window_size * MAX_MEMBERS) {
+            message_buffers[i].emplace_back(max_msg_size);
+        }
+    }
+    return message_buffers;
+  }
 
 } /* namespace derecho */

@@ -119,8 +119,8 @@ private:
     dispatcherType dispatchers;
     std::vector<view_upcall_t> view_upcalls;
 
-    DerechoParams derecho_params;
     const SubgroupInfo subgroup_info;
+    DerechoParams derecho_params;
     /** Sends a joining node the new view that has been constructed to include it.*/
     void commit_join(const View<dispatcherType>& new_view,
                      tcp::socket& client_socket);
@@ -156,12 +156,15 @@ private:
 
     /** Creates the SST and derecho_group for the current view, using the current view's member list.
      * The parameters are all the possible parameters for constructing derecho_group. */
-    void setup_derecho(std::vector<MessageBuffer>& message_buffers,
+  void setup_derecho(std::vector <std::vector<MessageBuffer>>& message_buffers,
                        CallbackSet callbacks,
                        const DerechoParams& derecho_params);
     /** Sets up the SST and derecho_group for a new view, based on the settings in the current view
      * (and copying over the SST data from the current view). */
     void transition_sst_and_rdmc(View<dispatcherType>& newView, int whichFailed);
+    std::map<node_id_t, ip_addr> get_member_ips_map(std::vector<node_id_t>& members, std::vector<ip_addr>& member_ips, std::vector<char> failed);
+    uint32_t calc_nReceived_size();
+    std::vector<std::vector<MessageBuffer>> create_message_buffers();
 
 public:
     /**
@@ -255,19 +258,19 @@ public:
      * position where there are at least payload_size bytes remaining in the
      * buffer. The returned pointer can be used to write a message into the
      * buffer. (Analogous to DerechoGroup::get_position) */
-    char* get_sendbuffer_ptr(long long unsigned int payload_size,
+    char* get_sendbuffer_ptr(uint32_t subgroup_num, long long unsigned int payload_size,
                              int pause_sending_turns = 0, bool cooked_send = false);
     /** Instructs the managed DerechoGroup to send the next message. This
      * returns immediately; the send is scheduled to happen some time in the future. */
-    void send();
+    void send(uint32_t subgroup_num);
     template <typename IdClass, unsigned long long tag, typename... Args>
-    void orderedSend(const std::vector<node_id_t>& nodes, Args&&... args);
+    void orderedSend(uint32_t subgroup_num, const std::vector<node_id_t>& nodes, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
-    void orderedSend(Args&&... args);
+    void orderedSend(uint32_t subgroup_num, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
-    auto orderedQuery(const std::vector<node_id_t>& nodes, Args&&... args);
+    auto orderedQuery(uint32_t subgroup_num, const std::vector<node_id_t>& nodes, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
-    auto orderedQuery(Args&&... args);
+    auto orderedQuery(uint32_t subgroup_num, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
     void p2pSend(node_id_t dest_node, Args&&... args);
     template <typename IdClass, unsigned long long tag, typename... Args>
@@ -283,9 +286,7 @@ public:
     static void log_event(const std::stringstream& event_text) {
         util::debug_log().log_event(event_text);
     }
-    void print_log(std::ostream& output_dest) const;
-    std::map<node_id_t, ip_addr> get_member_ips_map(std::vector<node_id_t>& members, std::vector<ip_addr>& member_ips, std::vector<char> failed);
-    uint32_t calc_nReceived_size();
+    void print_log(std::ostream& output_dest) const;  
 };
 
 } /* namespace derecho */
