@@ -30,6 +30,7 @@ void query_peer_addresses(std::map<uint32_t, std::string> &addresses,
 
 double compute_mean(std::vector<double> v);
 double compute_stddev(std::vector<double> v);
+double compute_median(std::vector<double> v);
 
 #define TRACE(x)      \
     do {              \

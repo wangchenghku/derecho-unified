@@ -1,6 +1,7 @@
 
 #include "util.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
@@ -114,6 +115,16 @@ double compute_stddev(std::vector<double> v) {
     double mean = compute_mean(v);
     double sq_sum = std::inner_product(v.begin(), v.end(), v.begin(), 0.0);
     return std::sqrt(sq_sum / v.size() - mean * mean);
+}
+double compute_median(std::vector<double> v) {
+	if(v.empty()) return 0;
+	
+	std::sort(v.begin(), v.end());
+	if(v.size() % 2) {
+		return (v[v.size()/2-1] + v[v.size()/2]) / 2;
+	} else {
+		return v[v.size()/2];
+	}
 }
 
 vector<event> events;

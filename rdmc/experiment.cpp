@@ -442,6 +442,7 @@ void cosmos(float timescale){
 		uint64_t dt = end_time - start_time;
 		unsigned long long nbins = (dt-1) / resolution + 1;
 		vector<size_t> bins(nbins, 0);
+		vector<double> latencies;
 		for(size_t t = 0; t < transfers.size(); t++) {
 			if(transfers[t].start_time >= transfer_end_times[t]) {
 				printf("END BEFORE START (start = %lu, end = %lu)\n",
@@ -462,11 +463,18 @@ void cosmos(float timescale){
 				
 				bins[b] += 8.0 * transfers[t].size * (e-s) / (etime - stime);
 			}
+
+			latencies.push_back((transfer_end_times[t] - transfers[t].start_time) * 1e-6);
 		}
 		printf("Bandwidth Measurements\nTime, Bandwidth\n");
 		for(size_t i = 0; i < bins.size(); i++) {
 			printf("%f, %f\n", i / 60.0 * resolution * 1e-9, (double)bins[i] / resolution);
 		}
+		puts("Latency");
+		for(size_t i = 0; i < latencies.size(); i += 100) {
+			printf("%f\n", latencies[i]);
+		}
+		printf("Median Latency = %f\n", compute_median(latencies));
 	} else {
 		ack_qps.emplace_back(0);
         ack_message = make_unique<rdma::message_type>("ACK", [](uint64_t, uint32_t, size_t){},
@@ -496,10 +504,10 @@ void cosmos(float timescale){
 	stop_cpu_monitor = true;
 	cpu_monitor_thread.join();
 
-	printf("\ncpu measurements\nTime, Load\n");
-	for(size_t i = 0; i < cpu_measurements.size(); i++) {
-		printf("%f, %f\n", i / 6.0, cpu_measurements[i]);
-	}
+	// printf("\ncpu measurements\nTime, Load\n");
+	// for(size_t i = 0; i < cpu_measurements.size(); i++) {
+	// 	printf("%f, %f\n", i / 6.0, cpu_measurements[i]);
+	// }
 	
 	printf("num_completed_transfers = %d\n", (int)num_completed_transfers);
 	printf("num_groups = %d\n", (int)num_groups);
