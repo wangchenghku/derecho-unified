@@ -56,7 +56,7 @@ template <typename dispatchersType>
 DerechoGroup<dispatchersType>::DerechoGroup(
     std::vector<node_id_t> _members, node_id_t my_node_id,
     std::shared_ptr<DerechoSST> _sst,
-    std::vector<std::vector<MessageBuffer>>& _free_message_buffers,
+    std::map<uint32_t, std::vector<MessageBuffer>>& _free_message_buffers,
     dispatchersType _dispatchers,
     CallbackSet callbacks,
     SubgroupInfo subgroup_info,
@@ -75,14 +75,17 @@ DerechoGroup<dispatchersType>::DerechoGroup(
           dispatchers(std::move(_dispatchers)),
           connections(my_node_id, ip_addrs, derecho_params.rpc_port),
           rdmc_group_num_offset(0),
-	  pending_sends(subgroup_info.num_subgroups(num_members)),
+          future_message_indices(subgroup_info.num_subgroups(num_members), 0),
+          next_sends(subgroup_info.num_subgroups(num_members)),
+          pending_sends(subgroup_info.num_subgroups(num_members)),
+          next_message_to_deliver(subgroup_info.num_subgroups(num_members)),
           sender_timeout(derecho_params.timeout_ms),
           sst(_sst) {
     assert(window_size >= 1);
 
     if(!derecho_params.filename.empty()) {
-        // file_writer = std::make_unique<FileWriter>(make_file_written_callback(),
-        //                                                   derecho_params.filename);
+        file_writer = std::make_unique<FileWriter>(make_file_written_callback(),
+                                                   derecho_params.filename);
     }
 
     for(uint i = 0; i < num_members; ++i) {
@@ -90,9 +93,6 @@ DerechoGroup<dispatchersType>::DerechoGroup(
     }
 
     auto num_subgroups = subgroup_info.num_subgroups(num_members);
-    next_message_to_deliver.resize(num_subgroups);
-    future_message_indices.resize(num_subgroups, 0);
-    next_sends.resize(num_subgroups);
     for(uint i = 0; i < num_subgroups; ++i) {
         uint32_t num_shards = subgroup_info.num_shards(num_members, i);
         for(uint j = 0; j < num_shards; ++j) {
@@ -105,15 +105,13 @@ DerechoGroup<dispatchersType>::DerechoGroup(
         }
     }
 
-    // free_message_buffers.swap(_free_message_buffers);
+    free_message_buffers.swap(_free_message_buffers);
     for(const auto p : subgroup_to_shard_n_index) {
         auto num_shard_members = subgroup_info.subgroup_membership(num_members, p.first, p.second.first).size();
         while(free_message_buffers[p.first].size() < window_size * num_shard_members) {
             free_message_buffers[p.first].emplace_back(max_msg_size);
         }
     }
-
-    // total_message_buffers = free_message_buffers.size();
 
     p2pBuffer = std::unique_ptr<char[]>(new char[derecho_params.max_payload_size]);
     deliveryBuffer = std::unique_ptr<char[]>(new char[derecho_params.max_payload_size]);
@@ -162,8 +160,10 @@ DerechoGroup<dispatchersType>::DerechoGroup(
           toFulfillQueue(std::move(old_group.toFulfillQueue)),
           fulfilledList(std::move(old_group.fulfilledList)),
           rdmc_group_num_offset(old_group.rdmc_group_num_offset),
-          total_message_buffers(old_group.total_message_buffers),
-	  pending_sends(subgroup_info.num_subgroups(num_members)),
+          future_message_indices(subgroup_info.num_subgroups(num_members), 0),
+          next_sends(subgroup_info.num_subgroups(num_members)),
+          pending_sends(subgroup_info.num_subgroups(num_members)),
+          next_message_to_deliver(subgroup_info.num_subgroups(num_members)),
           sender_timeout(old_group.sender_timeout),
           sst(_sst) {
     // Make sure rdmc_group_num_offset didn't overflow.
@@ -176,20 +176,17 @@ DerechoGroup<dispatchersType>::DerechoGroup(
 
     // Convience function that takes a msg from the old group and
     // produces one suitable for this group.
-    // auto convert_msg = [this](Message& msg, uint32_t subgroup_num) {
-    //     msg.sender_rank = member_index;
-    //     msg.index = future_message_indices[subgroup_num]++;
+    auto convert_msg = [this](Message& msg, uint32_t subgroup_num) {
+        msg.sender_rank = member_index;
+        msg.index = future_message_indices[subgroup_num]++;
 
-    //     header* h = (header*)msg.message_buffer.buffer.get();
-    //     future_message_indices[subgroup_num] += h->pause_sending_turns;
+        header* h = (header*)msg.message_buffer.buffer.get();
+        future_message_indices[subgroup_num] += h->pause_sending_turns;
 
-    //     return std::move(msg);
-    // };
+        return std::move(msg);
+    };
 
     auto num_subgroups = subgroup_info.num_subgroups(num_members);
-    next_message_to_deliver.resize(num_subgroups);
-    future_message_indices.resize(num_subgroups, 0);
-    next_sends.resize(num_subgroups);
     for(uint i = 0; i < num_subgroups; ++i) {
         uint32_t num_shards = subgroup_info.num_shards(num_members, i);
         for(uint j = 0; j < num_shards; ++j) {
@@ -202,7 +199,6 @@ DerechoGroup<dispatchersType>::DerechoGroup(
         }
     }
 
-    // free_message_buffers.swap(old_group.free_message_buffers);
     for(const auto p : subgroup_to_shard_n_index) {
         auto num_shard_members = subgroup_info.subgroup_membership(num_members, p.first, p.second.first).size();
         while(free_message_buffers[p.first].size() < window_size * num_shard_members) {
@@ -210,62 +206,72 @@ DerechoGroup<dispatchersType>::DerechoGroup(
         }
     }
 
-    // total_message_buffers = free_message_buffers.size();
+    // Reclaim MessageBuffers from the old group, and supplement them with
+    // additional if the group has grown.
+    std::lock_guard<std::mutex> lock(old_group.msg_state_mtx);
+    for(const auto p : subgroup_to_shard_n_index) {
+        const auto subgroup_num = p.first, shard_num = p.second.first;
+        const auto num_shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num).size();
+        // for later: don't move extra message buffers
+        free_message_buffers[subgroup_num].swap(old_group.free_message_buffers[subgroup_num]);
+        while(free_message_buffers[subgroup_num].size() < old_group.window_size * num_shard_members) {
+            free_message_buffers[subgroup_num].emplace_back(max_msg_size);
+        }
+    }
 
-    // // Reclaim MessageBuffers from the old group, and supplement them with
-    // // additional if the group has grown.
-    // std::lock_guard<std::mutex> lock(old_group.msg_state_mtx);
-    // free_message_buffers.swap(old_group.free_message_buffers);
-    // while(total_message_buffers < window_size * num_members) {
-    //     free_message_buffers.emplace_back(max_msg_size);
-    //     total_message_buffers++;
-    // }
-
-    // for(auto& msg : old_group.current_receives) {
-    //     free_message_buffers.push_back(std::move(msg.second.message_buffer));
-    // }
-    // old_group.current_receives.clear();
+    for(auto& msg : old_group.current_receives) {
+        free_message_buffers[msg.first.first].push_back(std::move(msg.second.message_buffer));
+    }
+    old_group.current_receives.clear();
     p2pBuffer = std::move(old_group.p2pBuffer);
     deliveryBuffer = std::move(old_group.deliveryBuffer);
 
-    // // Assume that any locally stable messages failed. If we were the sender
-    // // than re-attempt, otherwise discard. TODO: Presumably the ragged edge
-    // // cleanup will want the chance to deliver some of these.
-    // for(auto& p : old_group.locally_stable_messages) {
-    //     if(p.second.size == 0) {
-    //         continue;
-    //     }
+    // Assume that any locally stable messages failed. If we were the sender
+    // then re-attempt, otherwise discard. TODO: Presumably the ragged edge
+    // cleanup will want the chance to deliver some of these.
+    for(auto& p : old_group.locally_stable_messages) {
+        if(p.second.size() == 0) {
+            continue;
+        }
 
-    //     if(p.second.sender_rank == old_group.member_index) {
-    //         pending_sends.push(convert_msg(p.second));
-    //     } else {
-    //         free_message_buffers.push_back(std::move(p.second.message_buffer));
-    //     }
-    // }
-    // old_group.locally_stable_messages.clear();
+        for(auto& q : p.second) {
+            if(q.second.sender_rank == old_group.member_index) {
+                pending_sends[p.first].push(convert_msg(q.second, p.first));
+            } else {
+                free_message_buffers[p.first].push_back(std::move(q.second.message_buffer));
+            }
+        }
+    }
+    old_group.locally_stable_messages.clear();
 
-    // // Any messages that were being sent should be re-attempted.
-    // if(old_group.current_send) {
-    //     pending_sends.push(convert_msg(*old_group.current_send));
-    // }
-    // while(!old_group.pending_sends.empty()) {
-    //     pending_sends.push(convert_msg(old_group.pending_sends.front()));
-    //     old_group.pending_sends.pop();
-    // }
-    // if(old_group.next_send) {
-    //     next_send = convert_msg(*old_group.next_send);
-    // }
+    // Any messages that were being sent should be re-attempted.
+    for(auto p : subgroup_to_shard_n_index) {
+        auto subgroup_num = p.first;
+        if(old_group.current_sends[subgroup_num]) {
+            pending_sends[subgroup_num].push(convert_msg(*old_group.current_sends[subgroup_num], subgroup_num));
+        }
+
+        while(!old_group.pending_sends[subgroup_num].empty()) {
+	  pending_sends[subgroup_num].push(convert_msg(old_group.pending_sends[subgroup_num].front(), subgroup_num));
+            old_group.pending_sends[subgroup_num].pop();
+        }
+
+        if(old_group.next_sends[subgroup_num]) {
+            next_sends[subgroup_num] = convert_msg(*old_group.next_sends[subgroup_num], subgroup_num);
+        }
+
+        for(auto& entry : old_group.non_persistent_messages[subgroup_num]) {
+            non_persistent_messages[subgroup_num].emplace(entry.first,
+                                                          convert_msg(entry.second, subgroup_num));
+        }
+        old_group.non_persistent_messages.clear();
+    }
 
     // If the old group was using persistence, we should transfer its state to the new group
-    // file_writer = std::move(old_group.file_writer);
-    // if(file_writer) {
-    //     file_writer->set_message_written_upcall(make_file_written_callback());
-    // }
-    // for(auto& entry : old_group.non_persistent_messages) {
-    //     non_persistent_messages.emplace(entry.first,
-    //                                     convert_msg(entry.second));
-    // }
-    // old_group.non_persistent_messages.clear();
+    file_writer = std::move(old_group.file_writer);
+    if(file_writer) {
+        file_writer->set_message_written_upcall(make_file_written_callback());
+    }
     initialize_sst_row();
     bool no_member_failed = true;
     if(already_failed.size()) {
@@ -289,33 +295,33 @@ DerechoGroup<dispatchersType>::DerechoGroup(
     //    std::endl;
 }
 
-// template <typename handlersType>
-// std::function<void(persistence::message)> DerechoGroup<handlersType>::make_file_written_callback() {
-//     return [this](persistence::message m) {
-//         //m.sender is an ID, not a rank
-//         uint sender_rank;
-//         for(sender_rank = 0; sender_rank < num_members; ++sender_rank) {
-//             if(members[sender_rank] == m.sender) break;
-//         }
-//         callbacks.local_persistence_callback(sender_rank, m.index, m.data,
-//                                              m.length);
+template <typename handlersType>
+std::function<void(persistence::message)> DerechoGroup<handlersType>::make_file_written_callback() {
+    return [this](persistence::message m) {
+        //m.sender is an ID, not a rank
+        uint sender_rank;
+        for(sender_rank = 0; sender_rank < num_members; ++sender_rank) {
+            if(members[sender_rank] == m.sender) break;
+        }
+        callbacks.local_persistence_callback(sender_rank, m.index, m.data,
+                                             m.length);
 
-//         // m.data points to the char[] buffer in a MessageBuffer, so we need to find
-//         // the msg corresponding to m and put its MessageBuffer on free_message_buffers
-//         auto sequence_number = m.index * num_members + sender_rank;
-//         {
-//             std::lock_guard<std::mutex> lock(msg_state_mtx);
-//             auto find_result = non_persistent_messages.find(sequence_number);
-//             assert(find_result != non_persistent_messages.end());
-//             Message &m_msg = find_result->second;
-//             // free_message_buffers.push_back(std::move(m_msg.message_buffer));
-//             non_persistent_messages.erase(find_result);
-//             sst->persisted_num[member_index] = sequence_number;
-//             sst->put();
-//         }
+        // m.data points to the char[] buffer in a MessageBuffer, so we need to find
+        // the msg corresponding to m and put its MessageBuffer on free_message_buffers
+        auto sequence_number = m.index * num_members + sender_rank;
+        {
+            std::lock_guard<std::mutex> lock(msg_state_mtx);
+            auto find_result = non_persistent_messages[m.subgroup_num].find(sequence_number);
+            assert(find_result != non_persistent_messages[m.subgroup_num].end());
+            Message &m_msg = find_result->second;
+            free_message_buffers[m.subgroup_num].push_back(std::move(m_msg.message_buffer));
+            non_persistent_messages[m.subgroup_num].erase(find_result);
+            sst->persisted_num[member_index][m.subgroup_num] = sequence_number;
+            sst->put();
+        }
 
-//     };
-// }
+    };
+}
 
 template <typename dispatchersType>
 bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
@@ -413,7 +419,7 @@ bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
                                rdmc_group_num_offset, shard_members, block_size, type,
                                [this, i, j, k, num_shard_members, subgroup_offset](size_t length) -> rdmc::receive_destination {
                        std::lock_guard<std::mutex> lock(msg_state_mtx);
-                       assert(!free_message_buffers.empty());
+                       assert(!free_message_buffers[i].empty());
 
                        Message msg;
                        msg.sender_rank = k;
@@ -536,7 +542,7 @@ void DerechoGroup<dispatchersType>::deliver_message(Message& msg, uint32_t subgr
                                                     members[msg.sender_rank], (uint64_t)msg.index,
                                                     h->cooked_send};
             auto sequence_number = msg.index * num_members + msg.sender_rank;
-            non_persistent_messages.emplace(sequence_number, std::move(msg));
+            non_persistent_messages[subgroup_num].emplace(sequence_number, std::move(msg));
             file_writer->write_message(msg_for_filewriter);
         } else {
             free_message_buffers[subgroup_num].push_back(std::move(msg.message_buffer));

@@ -256,7 +256,7 @@ private:
     /** Messages that have finished sending/receiving but aren't yet globally stable */
     std::map<uint32_t, std::map<long long int, Message>> locally_stable_messages;
     /** Messages that are currently being written to persistent storage */
-    std::map<long long int, Message> non_persistent_messages;
+    std::map<uint32_t, std::map<long long int, Message>> non_persistent_messages;
 
     std::vector<long long int> next_message_to_deliver;
     std::mutex msg_state_mtx;
@@ -307,7 +307,7 @@ public:
     DerechoGroup(
         std::vector<node_id_t> _members, node_id_t my_node_id,
         std::shared_ptr<DerechoSST> _sst,
-        std::vector<std::vector<MessageBuffer>>& _free_message_buffers,
+        std::map<uint32_t, std::vector<MessageBuffer>>& _free_message_buffers,
         dispatcherType _dispatchers,
         CallbackSet callbacks,
         SubgroupInfo subgroup_info,

@@ -1029,14 +1029,16 @@ uint32_t ManagedGroup<dispatcherType>::calc_nReceived_size() {
 }
 
 template <typename dispatcherType>
-std::vector<std::vector<MessageBuffer>> ManagedGroup<dispatcherType>::create_message_buffers() {
+std::map<uint32_t, std::vector<MessageBuffer>> ManagedGroup<dispatcherType>::create_message_buffers() {
     uint32_t num_members = curr_view->members.size();
-    auto num_subgroups = subgroup_info.num_subgroups(num_members);
-    std::vector<std::vector<MessageBuffer>> message_buffers(num_subgroups);
+    const auto subgroup_to_shard_n_index = curr_view->derecho_group->get_subgroup_to_shard_n_index();
+    std::map<uint32_t, std::vector<MessageBuffer>> message_buffers;
     auto max_msg_size = DerechoGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
-    for(uint i = 0; i < num_subgroups; ++i) {
-        while(message_buffers[i].size() < derecho_params.window_size * MAX_MEMBERS) {
-            message_buffers[i].emplace_back(max_msg_size);
+    for(const auto p : subgroup_to_shard_n_index) {
+        const auto subgroup_num = p.first, shard_num = p.second.first;
+        const auto num_shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num).size();
+        while(message_buffers[subgroup_num].size() < derecho_params.window_size * num_shard_members) {
+            message_buffers[subgroup_num].emplace_back(max_msg_size);
         }
     }
     return message_buffers;

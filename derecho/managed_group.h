@@ -163,7 +163,7 @@ private:
     void transition_sst_and_rdmc(View<dispatcherType>& newView, int whichFailed);
     std::map<node_id_t, ip_addr> get_member_ips_map(std::vector<node_id_t>& members, std::vector<ip_addr>& member_ips, std::vector<char> failed);
     uint32_t calc_nReceived_size();
-    std::vector<std::vector<MessageBuffer>> create_message_buffers();
+    std::map<uint32_t, std::vector<MessageBuffer>> create_message_buffers();
 
 public:
     /**
