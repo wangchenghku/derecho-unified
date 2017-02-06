@@ -77,6 +77,8 @@ public:
     SSTFieldVector<int> globalMin;
     /** Must come after GlobalMin */
     SSTFieldVector<bool> globalMinReady;
+    /** to check for failures - used by the thread running check_failures_loop in derecho_group **/
+    SSTField<bool> heartbeat;
 
     /**
      * Constructs an SST, and initializes the GMS fields of the local row based
@@ -105,8 +107,7 @@ public:
         SSTInit(seq_num, stable_num, delivered_num,
                 persisted_num, vid, suspected, changes, joiner_ip,
                 nChanges, nCommitted, nAcked, nReceived, wedged,
-                globalMin, globalMinReady);
-        std::cout << "Here in DerechoSST constructor after initializer list" << std::endl;
+                globalMin, globalMinReady, heartbeat);
         //Once superclass constructor has finished, table entries can be initialized
         int my_row = get_local_index();
         for(int row = 0; row < get_num_rows(); ++row) {
@@ -124,6 +125,7 @@ public:
             nCommitted[row] = (row == my_row ? curr_vid : 0);
             nAcked[row] = (row == my_row ? curr_vid : 0);
             wedged[row] = false;
+	    heartbeat[row] = true;
         }
     }
 

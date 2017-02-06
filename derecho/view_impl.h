@@ -131,14 +131,14 @@ void View<handlersType>::merge_changes() {
             gmssst::increment(gmsSST->nChanges[myRank]);
         }
     }
-    gmsSST->put();
+    gmsSST->put((char*)std::addressof(gmsSST->changes[0][0]) - gmsSST->getBaseAddress(), gmsSST->changes.size() * sizeof(node_id_t) + gmsSST->joiner_ip.size() * sizeof(char) + sizeof(int) + sizeof(int));
 }
 
 template <typename handlersType>
 void View<handlersType>::wedge() {
     derecho_group->wedge();  // RDMC finishes sending, stops new sends or receives in Vc
     gmssst::set(gmsSST->wedged[my_rank], true);
-    gmsSST->put();
+    gmsSST->put((char*)std::addressof(gmsSST->wedged[0]) - gmsSST->getBaseAddress(), sizeof(bool));
 }
 
 template <typename handlersType>

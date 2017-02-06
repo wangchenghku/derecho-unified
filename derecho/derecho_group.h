@@ -360,6 +360,7 @@ public:
     const std::map<uint32_t, uint32_t>& get_subgroup_to_nReceived_offset() {
         return subgroup_to_nReceived_offset;
     }
+    std::vector<uint32_t> get_shard_sst_indices(uint32_t subgroup_num);
 };
 }  // namespace derecho
 

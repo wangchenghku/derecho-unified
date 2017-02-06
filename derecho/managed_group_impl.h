@@ -346,7 +346,10 @@ void ManagedGroup<dispatcherType>::register_predicates() {
                     throw derecho_exception("Potential partitioning event: this node is no longer in the majority and must shut down!");
                 }
 
-                gmsSST.put();
+		// push change to gmsSST.suspected[myRank]
+                gmsSST.put((char*)std::addressof(gmsSST.suspected[0][0]) - gmsSST.getBaseAddress(), gmsSST.suspected.size() * sizeof(bool));
+		// push change to gmsSST.wedged[myRank]
+		gmsSST.put((char*)std::addressof(gmsSST.wedged[0]) - gmsSST.getBaseAddress(), sizeof(bool));
                 if(Vc.IAmLeader() && !changes_contains(gmsSST, Vc.members[q]))  // Leader initiated
                 {
                     if((gmsSST.nChanges[myRank] - gmsSST.nCommitted[myRank]) == MAX_MEMBERS) {
@@ -356,7 +359,8 @@ void ManagedGroup<dispatcherType>::register_predicates() {
                     gmssst::set(gmsSST.changes[myRank][gmsSST.nChanges[myRank] % MAX_MEMBERS], Vc.members[q]);  // Reports the failure (note that q NotIn members)
                     gmssst::increment(gmsSST.nChanges[myRank]);
                     log_event(std::stringstream() << "Leader proposed a change to remove failed node " << Vc.members[q]);
-                    gmsSST.put();
+                    gmsSST.put((char*)std::addressof(gmsSST.changes[0][gmsSST.nChanges[myRank] % MAX_MEMBERS]) - gmsSST.getBaseAddress(), sizeof(node_id_t));
+		    gmsSST.put((char*)std::addressof(gmsSST.nChanges[0]) - gmsSST.getBaseAddress(), sizeof(int));
                 }
             }
         }
@@ -384,7 +388,7 @@ void ManagedGroup<dispatcherType>::register_predicates() {
         gmssst::set(gmsSST.nCommitted[gmsSST.get_local_index()],
                     min_acked(gmsSST, curr_view->failed));  // Leader commits a new request
         log_event(std::stringstream() << "Leader committing view proposal #" << gmsSST.nCommitted[gmsSST.get_local_index()]);
-        gmsSST.put();
+        gmsSST.put((char*)std::addressof(gmsSST.nCommitted[0]) - gmsSST.getBaseAddress(), sizeof(int));
     };
 
     auto leader_proposed_change = [this](const DerechoSST& gmsSST) {
@@ -409,7 +413,7 @@ void ManagedGroup<dispatcherType>::register_predicates() {
 
         // Notice a new request, acknowledge it
         gmssst::set(gmsSST.nAcked[myRank], gmsSST.nChanges[leader]);
-        gmsSST.put();
+        gmsSST.put((char*)std::addressof(gmsSST.changes[0][0]) - gmsSST.getBaseAddress(), gmsSST.changes.size() * sizeof(node_id_t) + gmsSST.joiner_ip.size() * sizeof(char) + sizeof(int) + sizeof(int) + sizeof(int));
         log_event("Wedging current view.");
         curr_view->wedge();
         log_event("Done wedging current view.");
@@ -700,7 +704,7 @@ void ManagedGroup<dispatcherType>::receive_join(tcp::socket& client_socket) {
     log_event(std::stringstream() << "Wedging view " << curr_view->vid);
     curr_view->wedge();
     log_event("Leader done wedging view.");
-    gmsSST.put();
+    gmsSST.put((char*)std::addressof(gmsSST.changes[0][0]) - gmsSST.getBaseAddress(), gmsSST.changes.size() * sizeof(node_id_t) + gmsSST.joiner_ip.size() * sizeof(char) + sizeof(int));
 }
 
 template <typename dispatcherType>
@@ -840,7 +844,8 @@ void ManagedGroup<dispatcherType>::leader_ragged_edge_cleanup(View<dispatcherTyp
 
     util::debug_log().log_event("Shard leader finished computing globalMin");
     gmssst::set(Vc.gmsSST->globalMinReady[myRank][subgroup_num], true);
-    Vc.gmsSST->put();
+    Vc.gmsSST->put(Vc.derecho_group->get_shard_sst_indices(subgroup_num), (char*)std::addressof(Vc.gmsSST->globalMin[0][nReceived_offset]) - Vc.gmsSST->getBaseAddress(), sizeof(int) * shard_members.size());
+    Vc.gmsSST->put(Vc.derecho_group->get_shard_sst_indices(subgroup_num), (char*)std::addressof(Vc.gmsSST->globalMinReady[0][subgroup_num]) - Vc.gmsSST->getBaseAddress(), sizeof(bool));
 
     deliver_in_order(Vc, myRank, subgroup_num, nReceived_offset, shard_members);
 }
@@ -854,7 +859,8 @@ void ManagedGroup<dispatcherType>::follower_ragged_edge_cleanup(View<dispatcherT
     gmssst::set(Vc.gmsSST->globalMin[myRank] + nReceived_offset, Vc.gmsSST->globalMin[shard_leader_rank] + nReceived_offset,
                 shard_members.size());
     gmssst::set(Vc.gmsSST->globalMinReady[myRank][subgroup_num], true);
-    Vc.gmsSST->put();
+    Vc.gmsSST->put(Vc.derecho_group->get_shard_sst_indices(subgroup_num), (char*)std::addressof(Vc.gmsSST->globalMin[0][nReceived_offset]) - Vc.gmsSST->getBaseAddress(), sizeof(int) * shard_members.size());
+    Vc.gmsSST->put(Vc.derecho_group->get_shard_sst_indices(subgroup_num), (char*)std::addressof(Vc.gmsSST->globalMinReady[0][subgroup_num]) - Vc.gmsSST->getBaseAddress(), sizeof(bool));
     deliver_in_order(Vc, shard_leader_rank, subgroup_num, nReceived_offset, shard_members);
 }
 
@@ -876,7 +882,7 @@ void ManagedGroup<dispatcherType>::report_failure(const node_id_t who) {
     if(cnt >= (curr_view->num_members + 1) / 2) {
         throw derecho_exception("Potential partitioning event: this node is no longer in the majority and must shut down!");
     }
-    curr_view->gmsSST->put();
+    curr_view->gmsSST->put((char*)std::addressof(curr_view->gmsSST->suspected[0][r]) - curr_view->gmsSST->getBaseAddress(), sizeof(bool));
     std::cout << "Exiting from remote_failure" << std::endl;
 }
 
@@ -887,7 +893,7 @@ void ManagedGroup<dispatcherType>::leave() {
     curr_view->derecho_group->wedge();
     curr_view->gmsSST->predicates.clear();
     curr_view->gmsSST->suspected[curr_view->my_rank][curr_view->my_rank] = true;
-    curr_view->gmsSST->put();
+    curr_view->gmsSST->put((char*)std::addressof(curr_view->gmsSST->suspected[0][curr_view->my_rank]) - curr_view->gmsSST->getBaseAddress(), sizeof(bool));
     thread_shutdown = true;
 }
 

@@ -174,6 +174,10 @@ DerechoGroup<dispatchersType>::DerechoGroup(
     // Just in case
     old_group.wedge();
 
+    for(uint i = 0; i < num_members; ++i) {
+        node_id_to_sst_index[members[i]] = i;
+    }
+
     // Convience function that takes a msg from the old group and
     // produces one suitable for this group.
     auto convert_msg = [this](Message& msg, uint32_t subgroup_num) {
@@ -252,7 +256,7 @@ DerechoGroup<dispatchersType>::DerechoGroup(
         }
 
         while(!old_group.pending_sends[subgroup_num].empty()) {
-	  pending_sends[subgroup_num].push(convert_msg(old_group.pending_sends[subgroup_num].front(), subgroup_num));
+            pending_sends[subgroup_num].push(convert_msg(old_group.pending_sends[subgroup_num].front(), subgroup_num));
             old_group.pending_sends[subgroup_num].pop();
         }
 
@@ -317,7 +321,7 @@ std::function<void(persistence::message)> DerechoGroup<handlersType>::make_file_
             free_message_buffers[m.subgroup_num].push_back(std::move(m_msg.message_buffer));
             non_persistent_messages[m.subgroup_num].erase(find_result);
             sst->persisted_num[member_index][m.subgroup_num] = sequence_number;
-            sst->put();
+            sst->put(get_shard_sst_indices(m.subgroup_num), (char*)std::addressof(sst->persisted_num[0][m.subgroup_num]) - sst->getBaseAddress(), sizeof(long long int));
         }
 
     };
@@ -383,10 +387,11 @@ bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
 			util::debug_log().log_event(std::stringstream() << "Updating seq_num for subgroup " << i << " to "  << new_seq_num);
 			sst->seq_num[member_index][i] = new_seq_num;
 			std::atomic_signal_fence(std::memory_order_acq_rel);
-			sst->put();
-		      } else {
-			sst->put();
-		      }
+			sst->put(get_shard_sst_indices(i), (char*)std::addressof(sst->seq_num[0][i]) - sst->getBaseAddress(), sizeof(long long int));
+			sst->put(get_shard_sst_indices(i), (char*)std::addressof(sst->nReceived[0][subgroup_offset + k]) - sst->getBaseAddress(), sizeof(long long int));
+              } else {
+			sst->put(get_shard_sst_indices(i), (char*)std::addressof(sst->nReceived[0][subgroup_offset + k]) - sst->getBaseAddress(), sizeof(long long int));
+              }
                     };
                     // Capture rdmc_receive_handler by copy! The reference to it won't be valid
                     // after this constructor ends!
@@ -596,7 +601,7 @@ void DerechoGroup<dispatchersType>::register_predicates() {
                                             << "Subgroup " << subgroup_num << ", updating stable_num to "
                                             << min_seq_num);
                 sst.stable_num[member_index][subgroup_num] = min_seq_num;
-                sst.put();
+                sst.put(get_shard_sst_indices(subgroup_num), (char*)std::addressof(sst.stable_num[0][subgroup_num]) - sst.getBaseAddress(), sizeof(long long int));
             }
             };
         stability_pred_handle = sst->predicates.insert(
@@ -623,10 +628,7 @@ void DerechoGroup<dispatchersType>::register_predicates() {
                 Message& msg = locally_stable_messages[subgroup_num].begin()->second;
                 deliver_message(msg, subgroup_num);
                 sst.delivered_num[member_index][subgroup_num] = least_undelivered_seq_num;
-                //                sst.put (offsetof (DerechoRow<N>,
-                //                delivered_num), sizeof
-                //                (least_undelivered_seq_num));
-                sst.put();
+                sst.put(get_shard_sst_indices(subgroup_num), (char*)std::addressof(sst.delivered_num[0][subgroup_num]) - sst.getBaseAddress(), sizeof(long long int));
                 locally_stable_messages[subgroup_num].erase(locally_stable_messages[subgroup_num].begin());
             }
         }
@@ -766,7 +768,7 @@ template <typename dispatchersType>
 void DerechoGroup<dispatchersType>::check_failures_loop() {
     while(!thread_shutdown) {
         std::this_thread::sleep_for(milliseconds(sender_timeout));
-        if(sst) sst->put();
+        if(sst) sst->put((char*)std::addressof(sst->heartbeat[0]) - sst->getBaseAddress(), sizeof(bool));
     }
 }
 
@@ -1020,6 +1022,19 @@ void DerechoGroup<dispatchersType>::debug_print() {
         std::cout << sst->nReceived[member_index][i] << " " << std::endl;
     }
     std::cout << std::endl;
+}
+
+template <typename dispatchersType>
+std::vector<uint32_t> DerechoGroup<dispatchersType>::get_shard_sst_indices(uint32_t subgroup_num) {
+    auto p = subgroup_to_shard_n_index[subgroup_num];
+    auto shard_num = p.first;
+    auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
+
+    std::vector<uint32_t> shard_sst_indices;
+    for(auto m : shard_members) {
+        shard_sst_indices.push_back(node_id_to_sst_index[m]);
+    }
+    return shard_sst_indices;
 }
 
 }  // namespace derecho
