@@ -307,7 +307,6 @@ public:
     DerechoGroup(
         std::vector<node_id_t> _members, node_id_t my_node_id,
         std::shared_ptr<DerechoSST> _sst,
-        std::map<uint32_t, std::vector<MessageBuffer>>& _free_message_buffers,
         dispatcherType _dispatchers,
         CallbackSet callbacks,
         SubgroupInfo subgroup_info,

@@ -33,8 +33,6 @@ size_t index_of(T container, U elem) {
  * @param my_node_id The rank (ID) of this node in the group
  * @param _sst The SST this group will use; created by the GMS (membership
  * service) for this group.
- * @param _free_message_buffers Message buffers to use for RDMC sending/receiving
- * (there must be one for each sender in the group)
  * @param _max_payload_size The size of the largest possible message that will
  * be sent in this group, in bytes
  * @param _callbacks A set of functions to call when messages have reached
@@ -56,7 +54,6 @@ template <typename dispatchersType>
 DerechoGroup<dispatchersType>::DerechoGroup(
     std::vector<node_id_t> _members, node_id_t my_node_id,
     std::shared_ptr<DerechoSST> _sst,
-    std::map<uint32_t, std::vector<MessageBuffer>>& _free_message_buffers,
     dispatchersType _dispatchers,
     CallbackSet callbacks,
     SubgroupInfo subgroup_info,
@@ -78,6 +75,7 @@ DerechoGroup<dispatchersType>::DerechoGroup(
           future_message_indices(subgroup_info.num_subgroups(num_members), 0),
           next_sends(subgroup_info.num_subgroups(num_members)),
           pending_sends(subgroup_info.num_subgroups(num_members)),
+          current_sends(subgroup_info.num_subgroups(num_members)),
           next_message_to_deliver(subgroup_info.num_subgroups(num_members)),
           sender_timeout(derecho_params.timeout_ms),
           sst(_sst) {
@@ -105,7 +103,6 @@ DerechoGroup<dispatchersType>::DerechoGroup(
         }
     }
 
-    free_message_buffers.swap(_free_message_buffers);
     for(const auto p : subgroup_to_shard_n_index) {
         auto num_shard_members = subgroup_info.subgroup_membership(num_members, p.first, p.second.first).size();
         while(free_message_buffers[p.first].size() < window_size * num_shard_members) {
@@ -163,6 +160,7 @@ DerechoGroup<dispatchersType>::DerechoGroup(
           future_message_indices(subgroup_info.num_subgroups(num_members), 0),
           next_sends(subgroup_info.num_subgroups(num_members)),
           pending_sends(subgroup_info.num_subgroups(num_members)),
+          current_sends(subgroup_info.num_subgroups(num_members)),
           next_message_to_deliver(subgroup_info.num_subgroups(num_members)),
           sender_timeout(old_group.sender_timeout),
           sst(_sst) {
@@ -342,14 +340,15 @@ bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
             }
             // check if the node belongs to the shard
             if(std::find(shard_members.begin(), shard_members.end(), members[member_index]) != shard_members.end()) {
+                subgroup_to_nReceived_offset[i] = subgroup_offset + subgroup_to_shard_n_index[i].second;
                 for(uint k = 0; k < num_shard_members; ++k) {
                     auto node_id = shard_members[k];
-                    subgroup_to_nReceived_offset[i] = subgroup_offset + k;
                     // When RDMC receives a message, it should store it in
                     // locally_stable_messages and update the received count
                     auto rdmc_receive_handler = [this, i, j, k, node_id, num_shard_members, subgroup_offset](char* data, size_t size) {
 		      assert(this->sst);
 		      util::debug_log().log_event(std::stringstream() << "Locally received message in subgroup " << i << ", shard " << j << ", sender rank " << k << ", index " << (sst->nReceived[member_index][subgroup_offset + k] + 1));
+		      std::cout << "Locally received message in subgroup " << i << ", shard " << j << ", sender rank " << k << ", index " << (sst->nReceived[member_index][subgroup_offset + k] + 1) << std::endl;
 		      std::lock_guard<std::mutex> lock(msg_state_mtx);
 		      header *h = (header *)data;
 		      sst->nReceived[member_index][subgroup_offset + k]++;
@@ -408,7 +407,7 @@ bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
                     }
                     if(node_id == members[member_index]) {
                         if(!rdmc::create_group(
-                               rdmc_group_num_offset, shard_members, block_size, type,
+                               rdmc_group_num_offset, rotated_shard_members, block_size, type,
                                [this](size_t length) -> rdmc::receive_destination {
 			       assert(false);
 			       return {nullptr, 0};
@@ -421,7 +420,7 @@ bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
                         rdmc_group_num_offset++;
                     } else {
                         if(!rdmc::create_group(
-                               rdmc_group_num_offset, shard_members, block_size, type,
+                               rdmc_group_num_offset, rotated_shard_members, block_size, type,
                                [this, i, j, k, num_shard_members, subgroup_offset](size_t length) -> rdmc::receive_destination {
                        std::lock_guard<std::mutex> lock(msg_state_mtx);
                        assert(!free_message_buffers[i].empty());
@@ -450,8 +449,6 @@ bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
         }
         subgroup_offset += max_shard_members;
     }
-    // rotated list of members - used for creating n internal RDMC groups
-    std::vector<uint32_t> rotated_members(num_members);
 
     std::cout << "The members are" << std::endl;
     for(uint i = 0; i < num_members; ++i) {
@@ -714,13 +711,15 @@ void DerechoGroup<dispatchersType>::send_loop() {
             return false;
         }
         Message &msg = pending_sends[subgroup_num].front();
+	auto p = subgroup_to_shard_n_index[subgroup_num];
+        uint32_t shard_num = p.first;
+        uint32_t shard_index = p.second;
+
+	std::cout << "nReceived offset = " << subgroup_to_nReceived_offset[subgroup_num] << ", nReceived entry " <<  sst->nReceived[member_index][subgroup_to_nReceived_offset[subgroup_num]] << ", message index = " << msg.index << std::endl;
         if(sst->nReceived[member_index][subgroup_to_nReceived_offset[subgroup_num]] < msg.index - 1) {
             return false;
         }
 
-	auto p = subgroup_to_shard_n_index[subgroup_num];
-        uint32_t shard_num = p.first;
-        uint32_t shard_index = p.second;
         auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
         auto num_shard_members = shard_members.size();
         for (uint i = 0; i < num_shard_members; ++i) {

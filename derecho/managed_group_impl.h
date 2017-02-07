@@ -601,7 +601,6 @@ ManagedGroup<dispatcherType>::~ManagedGroup() {
 template <typename dispatcherType>
 void ManagedGroup<dispatcherType>::setup_derecho(CallbackSet callbacks,
                                                  const DerechoParams& derecho_params) {
-    auto message_buffers = create_message_buffers();
     curr_view->gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
                                                          curr_view->members, curr_view->members[curr_view->my_rank],
                                                          [this](const uint32_t node_id) { report_failure(node_id); }, curr_view->failed, false),
@@ -611,7 +610,7 @@ void ManagedGroup<dispatcherType>::setup_derecho(CallbackSet callbacks,
 
     curr_view->derecho_group = std::make_unique<DerechoGroup<dispatcherType>>(
         curr_view->members, curr_view->members[curr_view->my_rank],
-        curr_view->gmsSST, message_buffers, std::move(dispatchers), callbacks, subgroup_info, derecho_params,
+        curr_view->gmsSST, std::move(dispatchers), callbacks, subgroup_info, derecho_params,
         get_member_ips_map(curr_view->members, curr_view->member_ips, curr_view->failed),
         curr_view->failed);
 }
@@ -899,7 +898,7 @@ void ManagedGroup<dispatcherType>::leave() {
 template <typename dispatcherType>
 char* ManagedGroup<dispatcherType>::get_sendbuffer_ptr(uint32_t subgroup_num, unsigned long long int payload_size, int pause_sending_turns, bool cooked_send) {
     lock_guard_t lock(view_mutex);
-    return curr_view->derecho_group->get_sendbuffer_ptr(payload_size, pause_sending_turns, cooked_send);
+    return curr_view->derecho_group->get_sendbuffer_ptr(subgroup_num, payload_size, pause_sending_turns, cooked_send);
 }
 
 template <typename dispatcherType>

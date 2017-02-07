@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
         long long unsigned int max_msg_size = 1000000;
         long long unsigned int block_size = 100000;
 
-        int num_messages = 100000;
+        int num_messages = 1;
         int received_count = 0;
 
         bool done = false;
