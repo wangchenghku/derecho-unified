@@ -773,11 +773,11 @@ void ManagedGroup<dispatcherType>::deliver_in_order(const View<dispatcherType>& 
     std::vector<long long int> max_received_indices(Vc.num_members);
     std::string deliveryOrder(" ");
     for(uint n = 0; n < shard_members.size(); n++) {
-      deliveryOrder += "Subgroup " + std::to_string(subgroup_num) + " " + std::to_string(Vc.members[Vc.my_rank]) +
+        deliveryOrder += "Subgroup " + std::to_string(subgroup_num) + " " + std::to_string(Vc.members[Vc.my_rank]) +
                          std::string(":0..") +
-	  std::to_string(Vc.gmsSST->globalMin[shard_leader_rank][nReceived_offset + n]) +
+                         std::to_string(Vc.gmsSST->globalMin[shard_leader_rank][nReceived_offset + n]) +
                          std::string(" ");
-      max_received_indices[n] = Vc.gmsSST->globalMin[shard_leader_rank][nReceived_offset + n];
+        max_received_indices[n] = Vc.gmsSST->globalMin[shard_leader_rank][nReceived_offset + n];
     }
     util::debug_log().log_event("Delivering ragged-edge messages in order: " +
                                 deliveryOrder);
@@ -792,19 +792,18 @@ void ManagedGroup<dispatcherType>::ragged_edge_cleanup(View<dispatcherType>& Vc)
     uint32_t num_members = Vc.members.size();
     const auto subgroup_to_shard_n_index = Vc.derecho_group->get_subgroup_to_shard_n_index();
     const auto subgroup_to_nReceived_offset = Vc.derecho_group->get_subgroup_to_nReceived_offset();
-    for (const auto p : subgroup_to_shard_n_index) {
-      const auto subgroup_num = p.first;
-      const auto shard_num = p.second.first;
-      const auto index = p.second.second;
-      const auto nReceived_offset = subgroup_to_nReceived_offset.at(subgroup_num);
-      const auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
+    for(const auto p : subgroup_to_shard_n_index) {
+        const auto subgroup_num = p.first;
+        const auto shard_num = p.second.first;
+        const auto index = p.second.second;
+        const auto nReceived_offset = subgroup_to_nReceived_offset.at(subgroup_num);
+        const auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
 
-      if (index == 0) {
-	leader_ragged_edge_cleanup(Vc, subgroup_num, nReceived_offset-index, shard_members);
-      }
-      else {
-	follower_ragged_edge_cleanup(Vc, subgroup_num, nReceived_offset-index, shard_members);
-      }
+        if(index == 0) {
+            leader_ragged_edge_cleanup(Vc, subgroup_num, nReceived_offset - index, shard_members);
+        } else {
+            follower_ragged_edge_cleanup(Vc, subgroup_num, nReceived_offset - index, shard_members);
+        }
     }
     // if(Vc.IAmLeader()) {
     //     leader_ragged_edge_cleanup(Vc);
@@ -831,8 +830,8 @@ void ManagedGroup<dispatcherType>::leader_ragged_edge_cleanup(View<dispatcherTyp
         for(uint n = 0; n < shard_members.size(); n++) {
             int min = Vc.gmsSST->nReceived[myRank][nReceived_offset + n];
             for(uint r = 0; r < shard_members.size(); r++) {
-	      const auto node_id = shard_members[r];
-	      const auto node_rank = Vc.rank_of(node_id);
+                const auto node_id = shard_members[r];
+                const auto node_rank = Vc.rank_of(node_id);
                 if(/*!Vc.failed[r] && */ min > Vc.gmsSST->nReceived[node_rank][nReceived_offset + n]) {
                     min = Vc.gmsSST->nReceived[node_rank][nReceived_offset + n];
                 }
@@ -922,7 +921,7 @@ void ManagedGroup<dispatcherType>::orderedSend(uint32_t subgroup_num, const std:
 
     std::unique_lock<std::mutex> lock(view_mutex);
     curr_view->derecho_group->template orderedSend<IdClass, tag, Args...>(subgroup_num,
-        nodes, buf, std::forward<Args>(args)...);
+                                                                          nodes, buf, std::forward<Args>(args)...);
 }
 
 template <typename dispatcherType>
@@ -947,7 +946,7 @@ auto ManagedGroup<dispatcherType>::orderedQuery(uint32_t subgroup_num, const std
 
     std::unique_lock<std::mutex> lock(view_mutex);
     return curr_view->derecho_group->template orderedQuery<IdClass, tag, Args...>(subgroup_num,
-        nodes, buf, std::forward<Args>(args)...);
+                                                                                  nodes, buf, std::forward<Args>(args)...);
 }
 
 template <typename dispatcherType>
@@ -1048,6 +1047,6 @@ std::map<uint32_t, std::vector<MessageBuffer>> ManagedGroup<dispatcherType>::cre
         }
     }
     return message_buffers;
-  }
+}
 
 } /* namespace derecho */

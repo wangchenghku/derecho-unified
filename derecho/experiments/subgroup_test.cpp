@@ -1,4 +1,6 @@
+#include <algorithm>
 #include <iostream>
+#include <vector>
 #include <string>
 #include <cstdlib>
 #include <map>
@@ -15,15 +17,14 @@ using std::map;
 #include "derecho/managed_group.h"
 #include "derecho/view.h"
 
-void query_node_info(derecho::node_id_t& node_id, derecho::ip_addr& node_ip, derecho::ip_addr& leader_ip) {
-     cout << "Please enter this node's ID: ";
-     cin >> node_id;
-     cout << "Please enter this node's IP address: ";
-     cin >> node_ip;
-     cout << "Please enter the leader node's IP address: ";
-     cin >> leader_ip;
+void query_node_info(derecho::node_id_t &node_id, derecho::ip_addr &node_ip, derecho::ip_addr &leader_ip) {
+    cout << "Please enter this node's ID: ";
+    cin >> node_id;
+    cout << "Please enter this node's IP address: ";
+    cin >> node_ip;
+    cout << "Please enter the leader node's IP address: ";
+    cin >> leader_ip;
 }
-
 
 int main(int argc, char *argv[]) {
     try {
@@ -63,14 +64,24 @@ int main(int argc, char *argv[]) {
         Dispatcher<> empty_dispatcher(node_id);
         std::unique_ptr<derecho::ManagedGroup<Dispatcher<>>> managed_group;
 
-	derecho::SubgroupInfo subgroup_info;
+        derecho::SubgroupInfo subgroup_info{[](uint32_t num_members) {
+	    return 1;
+        },
+                                            [](uint32_t num_members, uint32_t subgroup_num) {
+	    return 1;
+                                            },
+                                            [](uint32_t num_members, uint32_t subgroup_num, uint32_t shard_num) {
+					      std::vector<uint32_t> members(num_members);
+	    std::iota (members.begin(), members.end(), 0);
+	    return members;
+                                            }};
         if(node_id == leader_id) {
             assert(my_ip == leader_ip);
             managed_group = std::make_unique<derecho::ManagedGroup<Dispatcher<>>>(
                 my_ip, std::move(empty_dispatcher), callbacks, subgroup_info, param_object);
         } else {
             managed_group = std::make_unique<derecho::ManagedGroup<Dispatcher<>>>(
-										  node_id, my_ip, leader_id, leader_ip, std::move(empty_dispatcher), callbacks, subgroup_info);
+                node_id, my_ip, leader_id, leader_ip, std::move(empty_dispatcher), callbacks, subgroup_info);
         }
 
         cout << "Finished constructing/joining ManagedGroup" << endl;
