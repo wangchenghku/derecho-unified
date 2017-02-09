@@ -51,31 +51,42 @@ void DerechoSST::init_local_row_at_vid(const int vid) {
 }
 
 std::string DerechoSST::to_string() const {
-    const int row = get_local_index();
     std::stringstream s;
-    s << "Vid=" << vid[row] << " ";
-    s << "Suspected={ ";
-    for(unsigned int n = 0; n < suspected.size(); n++) {
-        s << (suspected[row][n] ? "T" : "F") << " ";
-    }
+    uint num_rows = get_num_rows();
+    for(uint row = 0; row < num_rows; ++row) {
+        s << "Row=" << row << " ";
+        s << "Vid=" << vid[row] << " ";
+        s << "Suspected={ ";
+        for(unsigned int n = 0; n < suspected.size(); n++) {
+            s << (suspected[row][n] ? "T" : "F") << " ";
+        }
 
-    s << "}, nChanges=" << nChanges[row] << ", nCommitted=" << nCommitted[row];
-    s << ", Changes={ ";
-    for(int n = nCommitted[row]; n < nChanges[row]; n++) {
-        s << changes[row][n % changes.size()];
-    }
-    s << " }, nAcked= " << nAcked[row] << ", nReceived={ ";
-    for(unsigned int n = 0; n < nReceived.size(); n++) {
-        s << nReceived[row][n] << " ";
-    }
+        s << "}, nChanges=" << nChanges[row] << ", nCommitted=" << nCommitted[row];
+        s << ", Changes={ ";
+        // for(int n = nCommitted[row]; n < nChanges[row]; n++) {
+        //     s << changes[row][n % changes.size()];
+        // }
+	for (uint n = 0; n < changes.size(); n++) {
+	  s << changes[row][n];
+	}
+        s << " }, nAcked= " << nAcked[row] << ", nReceived={ ";
+        for(unsigned int n = 0; n < nReceived.size(); n++) {
+            s << nReceived[row][n] << " ";
+        }
 
-    s << "}"
-      << ", Wedged = " << (wedged[row] ? "T" : "F") << ", GlobalMin = { ";
-    for(unsigned int n = 0; n < globalMin.size(); n++) {
-        s << globalMin[row][n] << " ";
-    }
+        s << "}"
+          << ", Joiner IP = " << joiner_ip[row]
+          << ", Wedged = " << (wedged[row] ? "T" : "F") << ", GlobalMin = { ";
+        for(unsigned int n = 0; n < globalMin.size(); n++) {
+            s << globalMin[row][n] << " ";
+        }
 
-    s << "}, GlobalMinReady=" << globalMinReady[row] << "\n";
+        s << "}, GlobalMinReady= { ";
+        for(uint n = 0; n < globalMinReady.size(); n++) {
+            s << globalMinReady[row] << " ";
+        }
+        s << "}" << std::endl;
+    }
     return s.str();
 }
 

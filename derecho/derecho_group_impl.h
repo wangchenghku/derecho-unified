@@ -338,6 +338,9 @@ bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
             if(max_shard_members < num_shard_members) {
                 max_shard_members = num_shard_members;
             }
+	    if (num_shard_members <= 1) {
+	      continue;
+	    }
             // check if the node belongs to the shard
             if(std::find(shard_members.begin(), shard_members.end(), members[member_index]) != shard_members.end()) {
                 subgroup_to_nReceived_offset[i] = subgroup_offset + subgroup_to_shard_n_index[i].second;
@@ -722,6 +725,7 @@ void DerechoGroup<dispatchersType>::send_loop() {
 
         auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
         auto num_shard_members = shard_members.size();
+        assert(num_shard_members > 1);
         for (uint i = 0; i < num_shard_members; ++i) {
 	  if (sst->delivered_num[i][subgroup_num] < (int)((msg.index - window_size) * num_shard_members + shard_index)
 	      || (file_writer && sst->persisted_num[i][subgroup_num] < (int)((msg.index - window_size) * num_shard_members + shard_index))) {
@@ -757,6 +761,7 @@ void DerechoGroup<dispatchersType>::send_loop() {
                 pending_sends[subgroup_to_send].pop();
             }
         }
+	std::cout << "thread_shutdown is : " << thread_shutdown << std::endl;
         std::cout << "DerechoGroup send thread shutting down" << std::endl;
     } catch(const std::exception& e) {
         std::cout << "DerechoGroup send thread had an exception: " << e.what() << std::endl;
@@ -766,9 +771,13 @@ void DerechoGroup<dispatchersType>::send_loop() {
 template <typename dispatchersType>
 void DerechoGroup<dispatchersType>::check_failures_loop() {
     while(!thread_shutdown) {
+      int x;
+      std::cin >> x;
+      std::cout << sst->to_string() << std::endl;
         std::this_thread::sleep_for(milliseconds(sender_timeout));
         if(sst) sst->put((char*)std::addressof(sst->heartbeat[0]) - sst->getBaseAddress(), sizeof(bool));
     }
+    std::cout << "timeout_thread shutting down" << std::endl;
 }
 
 template <typename dispatchersType>
@@ -993,6 +1002,7 @@ void DerechoGroup<dispatchersType>::rpc_process_loop() {
                               reply_size);
         }
     }
+    std::cout << "rpc_thread shutting down" << std::endl;
 }
 
 template <typename dispatchersType>

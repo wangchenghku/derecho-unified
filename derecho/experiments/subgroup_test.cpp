@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
         long long unsigned int max_msg_size = 1000000;
         long long unsigned int block_size = 100000;
 
-        int num_messages = 1;
+        int num_messages = 10;
         int received_count = 0;
 
         bool done = false;
@@ -68,13 +68,15 @@ int main(int argc, char *argv[]) {
 	    return 1;
         },
                                             [](uint32_t num_members, uint32_t subgroup_num) {
-	    return 1;
+	    return 4;
                                             },
                                             [](uint32_t num_members, uint32_t subgroup_num, uint32_t shard_num) {
-					      std::vector<uint32_t> members(num_members);
-	    std::iota (members.begin(), members.end(), 0);
-	    return members;
-                                            }};
+					      std::vector<uint32_t> members;
+					      for (uint i = shard_num; i < num_members; i+=4) {
+						members.push_back(i);
+					      }
+					      return members;
+					    }};
         if(node_id == leader_id) {
             assert(my_ip == leader_ip);
             managed_group = std::make_unique<derecho::ManagedGroup<Dispatcher<>>>(
