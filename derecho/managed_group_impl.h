@@ -610,8 +610,9 @@ void ManagedGroup<dispatcherType>::setup_derecho(CallbackSet callbacks,
     curr_view->gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
                                                          curr_view->members, curr_view->members[curr_view->my_rank],
                                                          [this](const uint32_t node_id) { report_failure(node_id); }, curr_view->failed, false),
-                                                     subgroup_info.num_subgroups(curr_view->members.size()), calc_nReceived_size());
+                                                     subgroup_info.num_subgroups(curr_view->members.size()), calc_nReceived_size(curr_view->members.size()));
 
+    // after this function returns, we're going to call put on the entire row anyways
     gmssst::set(curr_view->gmsSST->vid[curr_view->my_rank], curr_view->vid);
 
     curr_view->derecho_group = std::make_unique<DerechoGroup<dispatcherType>>(
@@ -631,7 +632,7 @@ void ManagedGroup<dispatcherType>::transition_sst_and_rdmc(View<dispatcherType>&
     newView.gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
                                                       newView.members, newView.members[newView.my_rank],
                                                       [this](const uint32_t node_id) { report_failure(node_id); }, newView.failed, false),
-                                                  subgroup_info.num_subgroups(curr_view->members.size()), calc_nReceived_size());
+                                                  subgroup_info.num_subgroups(newView.members.size()), calc_nReceived_size(newView.members.size()));
     std::cout << "Going to create the derecho group" << std::endl;
     newView.derecho_group = std::make_unique<DerechoGroup<dispatcherType>>(
         newView.members, newView.members[newView.my_rank], newView.gmsSST,
@@ -641,6 +642,7 @@ void ManagedGroup<dispatcherType>::transition_sst_and_rdmc(View<dispatcherType>&
 
     // Initialize this node's row in the new SST
     newView.gmsSST->init_local_row_from_existing((*curr_view->gmsSST), curr_view->my_rank);
+    // after this function returns, we're going to call put on the entire row anyways
     gmssst::set(newView.gmsSST->vid[newView.my_rank], newView.vid);
 }
 
@@ -1024,8 +1026,7 @@ std::map<node_id_t, ip_addr> ManagedGroup<dispatcherType>::get_member_ips_map(
 }
 
 template <typename dispatcherType>
-uint32_t ManagedGroup<dispatcherType>::calc_nReceived_size() {
-    uint32_t num_members = curr_view->members.size();
+uint32_t ManagedGroup<dispatcherType>::calc_nReceived_size(uint32_t num_members) {
     uint32_t sum = 0;
     auto num_subgroups = subgroup_info.num_subgroups(num_members);
     for(uint i = 0; i < num_subgroups; ++i) {
@@ -1039,6 +1040,7 @@ uint32_t ManagedGroup<dispatcherType>::calc_nReceived_size() {
         }
         sum += max_shard_members;
     }
+    std::cout << "nReceived_size is : " << sum << std::endl;
     return sum;
 }
 

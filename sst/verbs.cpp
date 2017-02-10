@@ -448,8 +448,8 @@ std::pair<int, int> verbs_poll_completion() {
     // check the completion status (here we don't care about the completion
     // opcode)
     if(wc.status != IBV_WC_SUCCESS) {
-        cout << "got bad completion with status: 0x%x, vendor syndrome: "
-             << wc.status << ", " << wc.vendor_err;
+        cerr << "got bad completion with status , vendor syndrome: "
+             << wc.status << ", " << wc.vendor_err << endl;
         return {wc.qp_num, -1};
     }
     return {wc.qp_num, 1};

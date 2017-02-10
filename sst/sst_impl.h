@@ -139,10 +139,6 @@ void SST<DerivedSST>::detect() {
 
 template <typename DerivedSST>
 void SST<DerivedSST>::put(std::vector<uint32_t> receiver_ranks, long long int offset, long long int size) {
-    // std::cout << "In function put" << std::endl;
-    // std::cout << "offset = " << offset << ", size = " << size << std::endl;
-    // std::cout << "Size of row is: " << rowLen << std::endl;
-    assert(offset + size <= rowLen);
     unsigned int num_writes_posted = 0;
     std::vector<bool> posted_write_to(num_members, false);
 
@@ -186,8 +182,6 @@ void SST<DerivedSST>::put(std::vector<uint32_t> receiver_ranks, long long int of
                     continue;
                 }
 
-                std::cout << "Reporting failure on row " << index2
-                          << " even though it didn't fail directly" << std::endl;
                 freeze(index2);
                 return;
             }

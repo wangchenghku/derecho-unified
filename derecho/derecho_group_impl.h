@@ -403,10 +403,10 @@ bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
 
                     std::vector<uint32_t> rotated_shard_members(shard_members.size());
                     for(uint l = 0; l < num_shard_members; ++l) {
-                        rotated_shard_members[l] = members[(k + l) % num_shard_members];
+                        rotated_shard_members[l] = shard_members[(k + l) % num_shard_members];
                     }
 
-		    // don't create rdmc group if there's only one member in the shard
+                    // don't create rdmc group if there's only one member in the shard
                     if(num_shard_members <= 1) {
                         continue;
                     }
@@ -642,7 +642,7 @@ void DerechoGroup<dispatchersType>::register_predicates() {
         auto sender_pred = [this, subgroup_num, shard_members, shard_index, num_shard_members](const DerechoSST& sst) {
 	      long long int seq_num = next_message_to_deliver[subgroup_num] * num_shard_members + shard_index;
           for(uint i = 0; i < num_shard_members; ++i) {
-              if(sst.delivered_num[i][subgroup_num] < seq_num || (file_writer && sst.persisted_num[i][subgroup_num] < seq_num)) {
+              if(sst.delivered_num[node_id_to_sst_index[shard_members[i]]][subgroup_num] < seq_num || (file_writer && sst.persisted_num[node_id_to_sst_index[shard_members[i]]][subgroup_num] < seq_num)) {
                   return false;
               }
           }
@@ -729,13 +729,13 @@ void DerechoGroup<dispatchersType>::send_loop() {
         auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
         auto num_shard_members = shard_members.size();
         assert(num_shard_members > 1);
-        for (uint i = 0; i < num_shard_members; ++i) {
-	  if (sst->delivered_num[i][subgroup_num] < (int)((msg.index - window_size) * num_shard_members + shard_index)
-	      || (file_writer && sst->persisted_num[i][subgroup_num] < (int)((msg.index - window_size) * num_shard_members + shard_index))) {
+        for(uint i = 0; i < num_shard_members; ++i) {
+            if(sst->delivered_num[node_id_to_sst_index[shard_members[i]]][subgroup_num] < (int)((msg.index - window_size) * num_shard_members + shard_index) || (file_writer && sst->persisted_num[node_id_to_sst_index[shard_members[i]]][subgroup_num] < (int)((msg.index - window_size) * num_shard_members + shard_index))) {
+                std::cout << sst->to_string() << std::endl;
                 return false;
             }
         }
-	
+
         return true;
     };
     auto should_send = [&]() {
@@ -764,7 +764,7 @@ void DerechoGroup<dispatchersType>::send_loop() {
                 pending_sends[subgroup_to_send].pop();
             }
         }
-	std::cout << "thread_shutdown is : " << thread_shutdown << std::endl;
+        std::cout << "thread_shutdown is : " << thread_shutdown << std::endl;
         std::cout << "DerechoGroup send thread shutting down" << std::endl;
     } catch(const std::exception& e) {
         std::cout << "DerechoGroup send thread had an exception: " << e.what() << std::endl;
@@ -774,9 +774,6 @@ void DerechoGroup<dispatchersType>::send_loop() {
 template <typename dispatchersType>
 void DerechoGroup<dispatchersType>::check_failures_loop() {
     while(!thread_shutdown) {
-        // int x;
-        // std::cin >> x;
-        // std::cout << sst->to_string() << std::endl;
         std::this_thread::sleep_for(milliseconds(sender_timeout));
         if(sst) sst->put((char*)std::addressof(sst->heartbeat[0]) - sst->getBaseAddress(), sizeof(bool));
     }
@@ -824,7 +821,7 @@ char* DerechoGroup<dispatchersType>::get_sendbuffer_ptr(
     auto num_shard_members = shard_members.size();
 
     for(uint i = 0; i < num_shard_members; ++i) {
-        if(sst->delivered_num[i][subgroup_num] <
+        if(sst->delivered_num[node_id_to_sst_index[shard_members[i]]][subgroup_num] <
            (int)((future_message_indices[subgroup_num] - window_size) * num_shard_members + shard_index)) {
             return nullptr;
         }
