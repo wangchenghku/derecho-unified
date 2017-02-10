@@ -65,18 +65,26 @@ int main(int argc, char *argv[]) {
         std::unique_ptr<derecho::ManagedGroup<Dispatcher<>>> managed_group;
 
         derecho::SubgroupInfo subgroup_info{[](uint32_t num_members) {
-	    return 1;
+	    if (num_members >= 3) {
+	      return 2;
+	    }
+	    return 0;
         },
                                             [](uint32_t num_members, uint32_t subgroup_num) {
-	    return 2;
+					      return 1;
                                             },
                                             [](uint32_t num_members, uint32_t subgroup_num, uint32_t shard_num) {
 					      std::vector<uint32_t> members;
-					      for (uint i = shard_num; i < num_members; i+=2) {
-						members.push_back(i);
+					      if (subgroup_num == 0) {
+						members.push_back(0);
+						members.push_back(1);
+					      }
+					      else {
+						members.push_back(1);
+						members.push_back(2);
 					      }
 					      return members;
-					    }};
+                                            }};
         if(node_id == leader_id) {
             assert(my_ip == leader_ip);
             managed_group = std::make_unique<derecho::ManagedGroup<Dispatcher<>>>(
@@ -91,29 +99,40 @@ int main(int argc, char *argv[]) {
         while(managed_group->get_members().size() < num_nodes) {
         }
 
-        if(node_id % 2 == 0) {
-            for(int i = 0; i < num_messages; ++i) {
-                // random message size between 1 and 100
-                unsigned int msg_size = (rand() % 7 + 2) * (max_msg_size / 10);
-                char *buf = managed_group->get_sendbuffer_ptr(0, msg_size);
-                //        cout << "After getting sendbuffer for message " << i <<
-                //        endl;
-                //        managed_group.debug_print_status();
-                while(!buf) {
-                    buf = managed_group->get_sendbuffer_ptr(0, msg_size);
-                }
-                for(unsigned int j = 0; j < msg_size; ++j) {
-                    buf[j] = 'a' + i;
-                }
-                //        cout << "Client telling DerechoGroup to send message " <<
-                //        i << "
-                //        with size " << msg_size << endl;;
-                managed_group->send(0);
+        auto send = [&](uint32_t subgroup_num) {
+	  for(int i = 0; i < num_messages; ++i) {
+            // random message size between 1 and 100
+            unsigned int msg_size = (rand() % 7 + 2) * (max_msg_size / 10);
+            char *buf = managed_group->get_sendbuffer_ptr(subgroup_num, msg_size);
+            //        cout << "After getting sendbuffer for message " << i <<
+            //        endl;
+            //        managed_group.debug_print_status();
+            while(!buf) {
+                buf = managed_group->get_sendbuffer_ptr(subgroup_num, msg_size);
             }
+            for(unsigned int j = 0; j < msg_size; ++j) {
+                buf[j] = 'a' + i;
+            }
+            //        cout << "Client telling DerechoGroup to send message " <<
+            //        i << "
+            //        with size " << msg_size << endl;;
+            managed_group->send(subgroup_num);
+	  } };
+        if(node_id == 1) {
+	  send(0);
+	  send(1);
         }
+	else if (node_id == 0){
+	  send(0);
+	}
+	else if (node_id == 2) {
+	  send(1);
+	}
+	
         while(!done) {
         }
 
+	cout << "Done" << endl;
         managed_group->barrier_sync();
 
         managed_group->leave();

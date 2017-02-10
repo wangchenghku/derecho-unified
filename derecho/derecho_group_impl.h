@@ -249,16 +249,18 @@ DerechoGroup<dispatchersType>::DerechoGroup(
     // Any messages that were being sent should be re-attempted.
     for(auto p : subgroup_to_shard_n_index) {
         auto subgroup_num = p.first;
-        if(old_group.current_sends[subgroup_num]) {
+        if(old_group.current_sends.size() > subgroup_num && old_group.current_sends[subgroup_num]) {
             pending_sends[subgroup_num].push(convert_msg(*old_group.current_sends[subgroup_num], subgroup_num));
         }
 
-        while(!old_group.pending_sends[subgroup_num].empty()) {
-            pending_sends[subgroup_num].push(convert_msg(old_group.pending_sends[subgroup_num].front(), subgroup_num));
-            old_group.pending_sends[subgroup_num].pop();
+        if(old_group.pending_sends.size() > subgroup_num) {
+            while(!old_group.pending_sends[subgroup_num].empty()) {
+                pending_sends[subgroup_num].push(convert_msg(old_group.pending_sends[subgroup_num].front(), subgroup_num));
+                old_group.pending_sends[subgroup_num].pop();
+            }
         }
 
-        if(old_group.next_sends[subgroup_num]) {
+        if(old_group.next_sends.size() > subgroup_num && old_group.next_sends[subgroup_num]) {
             next_sends[subgroup_num] = convert_msg(*old_group.next_sends[subgroup_num], subgroup_num);
         }
 
