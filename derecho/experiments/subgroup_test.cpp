@@ -68,11 +68,11 @@ int main(int argc, char *argv[]) {
 	    return 1;
         },
                                             [](uint32_t num_members, uint32_t subgroup_num) {
-	    return 4;
+	    return 2;
                                             },
                                             [](uint32_t num_members, uint32_t subgroup_num, uint32_t shard_num) {
 					      std::vector<uint32_t> members;
-					      for (uint i = shard_num; i < num_members; i+=4) {
+					      for (uint i = shard_num; i < num_members; i+=2) {
 						members.push_back(i);
 					      }
 					      return members;

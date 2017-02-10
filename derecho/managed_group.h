@@ -248,7 +248,7 @@ public:
 
     ~ManagedGroup();
 
-    void rdmc_sst_setup();
+    void rdmc_sst_initialization();
     /** Causes this node to cleanly leave the group by setting itself to "failed." */
     void leave();
     /** Creates and returns a vector listing the nodes that are currently members of the group. */

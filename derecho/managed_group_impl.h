@@ -56,7 +56,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(
           derecho_params(derecho_params) {
     const node_id_t my_id = 0;
     curr_view = start_group(my_id, my_ip);
-    rdmc_sst_setup();
+    rdmc_sst_initialization();
     //Wait for the first client (second group member) to join
     await_second_member(my_id);
 
@@ -118,7 +118,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(const node_id_t my_id,
           derecho_params(0, 0) {
     curr_view = join_existing(my_id, leader_ip, gms_port);
     curr_view->my_rank = curr_view->rank_of(my_id);
-    rdmc_sst_setup();
+    rdmc_sst_initialization();
     if(!derecho_params.filename.empty()) {
         view_file_name = std::string(derecho_params.filename + persistence::PAXOS_STATE_EXTENSION);
         std::string params_file_name(derecho_params.filename + persistence::PARAMATERS_EXTENSION);
@@ -195,7 +195,7 @@ ManagedGroup<dispatcherType>::ManagedGroup(const std::string& recovery_filename,
          * restart and join. */
         curr_view = start_group(my_id, my_ip);
         curr_view->vid = last_view->vid + 1;
-        rdmc_sst_setup();
+        rdmc_sst_initialization();
         if(_derecho_params) {
             derecho_params = _derecho_params.value();
         } else {
@@ -273,7 +273,7 @@ void ManagedGroup<dispatcherType>::await_second_member(const node_id_t my_id) {
 }
 
 template <typename dispatcherType>
-void ManagedGroup<dispatcherType>::rdmc_sst_setup() {
+void ManagedGroup<dispatcherType>::rdmc_sst_initialization() {
     std::cout << "Doing global setup of RDMC and SST" << std::endl;
     // construct member_ips
     auto member_ips_map = get_member_ips_map(curr_view->members, curr_view->member_ips, curr_view->failed);
@@ -338,7 +338,7 @@ void ManagedGroup<dispatcherType>::register_predicates() {
                 log_event(std::stringstream() << "GMS telling SST to freeze row " << q << " which is node " << Vc.members[q]);
                 gmsSST.freeze(q);  // Cease to accept new updates from q
                 Vc.derecho_group->wedge();
-		print_log(std::cout);
+		// print_log(std::cout);
                 gmssst::set(gmsSST.wedged[myRank], true);  // RDMC has halted new sends and receives in theView
                 Vc.failed[q] = true;
                 Vc.nFailed++;
@@ -348,9 +348,9 @@ void ManagedGroup<dispatcherType>::register_predicates() {
                 }
 
 		// push change to gmsSST.suspected[myRank]
-                gmsSST.put((char*)std::addressof(gmsSST.suspected[0][0]) - gmsSST.getBaseAddress(), gmsSST.suspected.size() * sizeof(bool));
+                gmsSST.put(gmsSST.suspected.get_base() - gmsSST.getBaseAddress(), gmsSST.changes.get_base() - gmsSST.suspected.get_base());
 		// push change to gmsSST.wedged[myRank]
-		gmsSST.put((char*)std::addressof(gmsSST.wedged[0]) - gmsSST.getBaseAddress(), sizeof(bool));
+		gmsSST.put(gmsSST.wedged.get_base() - gmsSST.getBaseAddress(), sizeof(bool));
                 if(Vc.IAmLeader() && !changes_contains(gmsSST, Vc.members[q]))  // Leader initiated
                 {
                     if((gmsSST.nChanges[myRank] - gmsSST.nCommitted[myRank]) == MAX_MEMBERS) {
@@ -361,7 +361,7 @@ void ManagedGroup<dispatcherType>::register_predicates() {
                     gmssst::increment(gmsSST.nChanges[myRank]);
                     log_event(std::stringstream() << "Leader proposed a change to remove failed node " << Vc.members[q]);
                     gmsSST.put((char*)std::addressof(gmsSST.changes[0][gmsSST.nChanges[myRank] % MAX_MEMBERS]) - gmsSST.getBaseAddress(), sizeof(node_id_t));
-		    gmsSST.put((char*)std::addressof(gmsSST.nChanges[0]) - gmsSST.getBaseAddress(), sizeof(int));
+		    gmsSST.put(gmsSST.nChanges.get_base() - gmsSST.getBaseAddress(), sizeof(int));
                 }
             }
         }
@@ -389,7 +389,7 @@ void ManagedGroup<dispatcherType>::register_predicates() {
         gmssst::set(gmsSST.nCommitted[gmsSST.get_local_index()],
                     min_acked(gmsSST, curr_view->failed));  // Leader commits a new request
         log_event(std::stringstream() << "Leader committing view proposal #" << gmsSST.nCommitted[gmsSST.get_local_index()]);
-        gmsSST.put((char*)std::addressof(gmsSST.nCommitted[0]) - gmsSST.getBaseAddress(), sizeof(int));
+        gmsSST.put(gmsSST.nCommitted.get_base() - gmsSST.getBaseAddress(), sizeof(int));
     };
 
     auto leader_proposed_change = [this](const DerechoSST& gmsSST) {
@@ -414,10 +414,10 @@ void ManagedGroup<dispatcherType>::register_predicates() {
 
         // Notice a new request, acknowledge it
         gmssst::set(gmsSST.nAcked[myRank], gmsSST.nChanges[leader]);
-        gmsSST.put((char*)std::addressof(gmsSST.changes[0][0]) - gmsSST.getBaseAddress(), gmsSST.changes.size() * sizeof(node_id_t) + gmsSST.joiner_ip.size() * sizeof(char) + sizeof(int) + sizeof(int) + sizeof(int));
+        gmsSST.put(gmsSST.changes.get_base() - gmsSST.getBaseAddress(), gmsSST.nReceived.get_base() - gmsSST.changes.get_base());
         log_event("Wedging current view.");
         curr_view->wedge();
-        print_log(std::cout);
+        // print_log(std::cout);
         log_event("Done wedging current view.");
 
     };
@@ -438,8 +438,8 @@ void ManagedGroup<dispatcherType>::register_predicates() {
         assert(gmsSST.get_local_index() == curr_view->my_rank);
 
         Vc.wedge();
-	std::cout << "In start_view_change" << std::endl;
-        print_log(std::cout);
+	// std::cout << "In start_view_change" << std::endl;
+        // print_log(std::cout);
         node_id_t currChangeID = gmsSST.changes[myRank][Vc.vid % MAX_MEMBERS];
         next_view = std::make_unique<View<dispatcherType>>();
         next_view->vid = Vc.vid + 1;
@@ -699,21 +699,21 @@ void ManagedGroup<dispatcherType>::receive_join(tcp::socket& client_socket) {
     node_id_t joining_client_id = 0;
     client_socket.exchange(curr_view->members[curr_view->my_rank], joining_client_id);
 
-    std::cout << gmsSST.to_string() << std::endl;
+    // std::cout << gmsSST.to_string() << std::endl;
     log_event(std::stringstream() << "Proposing change to add node " << joining_client_id);
-    std::cout << std::endl << std::endl;
+    // std::cout << std::endl << std::endl;
     size_t next_change = gmsSST.nChanges[curr_view->my_rank] % MAX_MEMBERS;
     gmssst::set(gmsSST.changes[curr_view->my_rank][next_change], joining_client_id);
     gmssst::set(gmsSST.joiner_ip[curr_view->my_rank], joiner_ip);
 
     gmssst::increment(gmsSST.nChanges[curr_view->my_rank]);
 
-    std::cout << gmsSST.to_string() << std::endl;
+    // std::cout << gmsSST.to_string() << std::endl;
     log_event(std::stringstream() << "Wedging view " << curr_view->vid);
     curr_view->wedge();
     print_log(std::cout);
     log_event("Leader done wedging view.");
-    gmsSST.put((char*)std::addressof(gmsSST.changes[0][0]) - gmsSST.getBaseAddress(), gmsSST.changes.size() * sizeof(node_id_t) + gmsSST.joiner_ip.size() * sizeof(char) + sizeof(int));
+    gmsSST.put(gmsSST.changes.get_base() - gmsSST.getBaseAddress(), gmsSST.nCommitted.get_base() - gmsSST.changes.get_base());
 }
 
 template <typename dispatcherType>
@@ -779,7 +779,7 @@ int ManagedGroup<dispatcherType>::min_acked(const DerechoSST& gmsSST, const std:
 template <typename dispatcherType>
 void ManagedGroup<dispatcherType>::deliver_in_order(const View<dispatcherType>& Vc, const int shard_leader_rank, const uint32_t subgroup_num, const uint32_t nReceived_offset, const std::vector<node_id_t>& shard_members) {
     // Ragged cleanup is finished, deliver in the implied order
-    std::vector<long long int> max_received_indices(Vc.num_members);
+  std::vector<long long int> max_received_indices(shard_members.size());
     std::string deliveryOrder(" ");
     for(uint n = 0; n < shard_members.size(); n++) {
         deliveryOrder += "Subgroup " + std::to_string(subgroup_num) + " " + std::to_string(Vc.members[Vc.my_rank]) +

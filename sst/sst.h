@@ -46,6 +46,11 @@ public:
         this->base = base;
         return padded_len(field_len);
     }
+
+    char* get_base() {
+        return const_cast<char*>(base);
+    }
+
     void set_rowLen(const int& _rowLen) { rowLen = _rowLen; }
 };
 

@@ -338,9 +338,6 @@ bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
             if(max_shard_members < num_shard_members) {
                 max_shard_members = num_shard_members;
             }
-	    if (num_shard_members <= 1) {
-	      continue;
-	    }
             // check if the node belongs to the shard
             if(std::find(shard_members.begin(), shard_members.end(), members[member_index]) != shard_members.end()) {
                 subgroup_to_nReceived_offset[i] = subgroup_offset + subgroup_to_shard_n_index[i].second;
@@ -408,6 +405,12 @@ bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
                     for(uint l = 0; l < num_shard_members; ++l) {
                         rotated_shard_members[l] = members[(k + l) % num_shard_members];
                     }
+
+		    // don't create rdmc group if there's only one member in the shard
+                    if(num_shard_members <= 1) {
+                        continue;
+                    }
+
                     if(node_id == members[member_index]) {
                         if(!rdmc::create_group(
                                rdmc_group_num_offset, rotated_shard_members, block_size, type,
@@ -771,9 +774,9 @@ void DerechoGroup<dispatchersType>::send_loop() {
 template <typename dispatchersType>
 void DerechoGroup<dispatchersType>::check_failures_loop() {
     while(!thread_shutdown) {
-      int x;
-      std::cin >> x;
-      std::cout << sst->to_string() << std::endl;
+        // int x;
+        // std::cin >> x;
+        // std::cout << sst->to_string() << std::endl;
         std::this_thread::sleep_for(milliseconds(sender_timeout));
         if(sst) sst->put((char*)std::addressof(sst->heartbeat[0]) - sst->getBaseAddress(), sizeof(bool));
     }
