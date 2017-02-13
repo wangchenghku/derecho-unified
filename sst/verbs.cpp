@@ -19,9 +19,11 @@
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <thread>
 #include <unistd.h>
 
 #include "derecho/connection_manager.h"
+#include "poll_utils.h"
 #include "verbs.h"
 
 using std::cout;
@@ -82,6 +84,9 @@ struct global_resources {
 };
 /** The single instance of global_resources for the %SST system */
 struct global_resources *g_res;
+
+std::thread polling_thread;
+static bool shutdown = false;
 
 /**
  * Initializes the resources. Registers write_addr and read_addr as the read
@@ -321,7 +326,7 @@ void resources::connect_qp() {
  * @param op The operation mode; 0 is for read, 1 is for write.
  * @return The return code of the IB Verbs post_send operation.
  */
-int resources::post_remote_send(long long int offset, long long int size,
+int resources::post_remote_send(uint32_t id, long long int offset, long long int size,
                                 int op) {
     struct ibv_send_wr sr;
     struct ibv_sge sge;
@@ -336,7 +341,8 @@ int resources::post_remote_send(long long int offset, long long int size,
     // prepare the send work request
     memset(&sr, 0, sizeof(sr));
     sr.next = NULL;
-    sr.wr_id = 0;
+    // set the id for the work request, useful at the time of polling
+    sr.wr_id = id;
     sr.sg_list = &sge;
     sr.num_sge = 1;
     // set opcode depending on op parameter
@@ -361,8 +367,8 @@ int resources::post_remote_send(long long int offset, long long int size,
 /**
  * @param size The number of bytes to read from remote memory.
  */
-void resources::post_remote_read(long long int size) {
-    int rc = post_remote_send(0, size, 0);
+void resources::post_remote_read(uint32_t id, long long int size) {
+    int rc = post_remote_send(id, 0, size, 0);
     check_for_error(
         !rc, "Could not post RDMA read, error code is " + std::to_string(rc));
 }
@@ -371,8 +377,8 @@ void resources::post_remote_read(long long int size) {
  * start reading.
  * @param size The number of bytes to read from remote memory.
  */
-void resources::post_remote_read(long long int offset, long long int size) {
-    int rc = post_remote_send(offset, size, 0);
+void resources::post_remote_read(uint32_t id, long long int offset, long long int size) {
+    int rc = post_remote_send(id, offset, size, 0);
     check_for_error(
         !rc, "Could not post RDMA read, error code is " + std::to_string(rc));
 }
@@ -380,79 +386,73 @@ void resources::post_remote_read(long long int offset, long long int size) {
  * @param size The number of bytes to write from the local buffer to remote
  * memory.
  */
-void resources::post_remote_write(long long int size) {
-    int rc = post_remote_send(0, size, 1);
+void resources::post_remote_write(uint32_t id, long long int size) {
+    int rc = post_remote_send(id, 0, size, 1);
     check_for_error(
         !rc, "Could not post RDMA write, error code is " + std::to_string(rc));
 }
+
 /**
  * @param offset The offset, in bytes, of the remote memory buffer at which to
  * start writing.
  * @param size The number of bytes to write from the local buffer into remote
  * memory.
  */
-void resources::post_remote_write(long long int offset, long long int size) {
-    int rc = post_remote_send(offset, size, 1);
+void resources::post_remote_write(uint32_t id, long long int offset, long long int size) {
+    int rc = post_remote_send(id, offset, size, 1);
     check_for_error(
         !rc, "Could not post RDMA write, error code is " + std::to_string(rc));
 }
 
+void polling_loop() {
+    std::cout << "Polling thread starting" << std::endl;
+    while(!shutdown) {
+        auto ce = verbs_poll_completion();
+        util::polling_data.insert_completion_entry(ce.first, ce.second);
+    }
+    std::cout << "Polling thread ending" << std::endl;
+}
+
 /**
  * @details
- * This blocks until either a single entry in the completion queue has
- * completed, or a timeout is reached. The timeout is set by the constant
- * MAX_POLL_CQ_TIMEOUT.
+ * This blocks until a single entry in the completion queue has
+ * completed
+ * It is exclusively used by the polling thread
+ * the thread can sleep while in this function, when it calls util::polling_data.wait_for_requests
  * @return pair(qp_num,result) The queue pair number associated with the
- * completed request and the result (1 for successful, -1 for unsuccessful, 0 if
- * no completion found)
+ * completed request and the result (1 for successful, -1 for unsuccessful)
  */
-std::pair<int, int> verbs_poll_completion() {
+std::pair<uint32_t, std::pair<int, int>> verbs_poll_completion() {
     struct ibv_wc wc;
-    unsigned long start_time_msec;
-    unsigned long cur_time_msec;
-    struct timeval cur_time;
     int poll_result;
 
-    // poll the completion for a while before giving up of doing it ..
-    gettimeofday(&cur_time, NULL);
-    start_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
-    do {
-        poll_result = ibv_poll_cq(g_res->cq, 1, &wc);
-        gettimeofday(&cur_time, NULL);
-        cur_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
-    } while((poll_result == 0) &&
-            ((cur_time_msec - start_time_msec) < MAX_POLL_CQ_TIMEOUT));
-    //
-    //     gettimeofday(&cur_time, NULL);
-    //     cur_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
-    //     unsigned long time_to_completion = cur_time_msec - start_time_msec;
-    //     if(time_to_completion > 1)
-    //         cout << "Poll completion time: " << time_to_completion << endl;
-    //     if (time_to_completion > max_time_to_completion) {
-    //         max_time_to_completion = time_to_completion;
-    //         cout << "New maximum completion time: " << max_time_to_completion
-    //         << endl;
-    //     }
-
+    while(true) {
+        poll_result = 0;
+        for(int i = 0; i < 50; ++i) {
+            poll_result = ibv_poll_cq(g_res->cq, 1, &wc);
+            if(poll_result) {
+                break;
+            }
+        }
+        if(poll_result) {
+            break;
+        }
+        // util::polling_data.wait_for_requests();
+    }
     // not sure what to do when we cannot read entries off the CQ
     // this means that something is wrong with the local node
     if(poll_result < 0) {
         check_for_error(false, "Poll completion failed");
-        return {-1, 0};
-    }
-    if(poll_result == 0) {
-        check_for_error(false,
-                        "Completion wasn't found in the CQ after timeout");
-        return {-1, 0};
+        exit(-1);
     }
     // check the completion status (here we don't care about the completion
     // opcode)
     if(wc.status != IBV_WC_SUCCESS) {
-        cerr << "got bad completion with status , vendor syndrome: "
-             << wc.status << ", " << wc.vendor_err << endl;
-        return {wc.qp_num, -1};
+        cout << "got bad completion with status: 0x%x, vendor syndrome: "
+             << wc.status << ", " << wc.vendor_err;
+        return {wc.wr_id, {wc.qp_num, -1}};
     }
-    return {wc.qp_num, 1};
+    return {wc.wr_id, {wc.qp_num, 1}};
 }
 
 /** Allocates memory for global RDMA resources. */
@@ -515,6 +515,9 @@ void resources_create() {
     check_for_error(g_res->cq,
                     "Could not create completion queue, error code is " +
                         std::to_string(errno));
+
+    // start the polling thread
+    polling_thread = std::thread(polling_loop);
 }
 
 bool add_node(uint32_t new_id, const string new_ip_addr) {
@@ -550,19 +553,26 @@ void verbs_initialize(const map<uint32_t, string> &ip_addrs, uint32_t node_rank)
  * only be called once all SST instances have been destroyed.
  */
 void verbs_destroy() {
-    int rc;
-    if(g_res->cq) {
-        rc = ibv_destroy_cq(g_res->cq);
-        check_for_error(!rc, "Could not destroy completion queue");
-    }
-    if(g_res->pd) {
-        rc = ibv_dealloc_pd(g_res->pd);
-        check_for_error(!rc, "Could not deallocate protection domain");
-    }
-    if(g_res->ib_ctx) {
-        rc = ibv_close_device(g_res->ib_ctx);
-        check_for_error(!rc, "Could not close RDMA device");
-    }
+    std::cout << "Waiting for polling thread to exit" << std::endl;
+    shutdown = true;
+    // int rc;
+    // if(g_res->cq) {
+    //     rc = ibv_destroy_cq(g_res->cq);
+    //     check_for_error(!rc, "Could not destroy completion queue");
+    // }
+    // if(g_res->pd) {
+    //     rc = ibv_dealloc_pd(g_res->pd);
+    //     check_for_error(!rc, "Could not deallocate protection domain");
+    // }
+    // if(g_res->ib_ctx) {
+    //     rc = ibv_close_device(g_res->ib_ctx);
+    //     check_for_error(!rc, "Could not close RDMA device");
+    // }
+
+    // if (polling_thread.joinable()) {
+    // polling_thread.join();
+    // }
+    std::cout << "Shutting down" << std::endl;
 }
 
 }  // namespace sst

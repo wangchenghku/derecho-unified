@@ -128,8 +128,9 @@ int main(int argc, char *argv[]) {
 	else if (node_id == 2) {
 	  send(1);
 	}
-	
-        while(!done) {
+
+	// everything that follow is rendered irrelevant
+        while(true) {
         }
 
 	cout << "Done" << endl;
