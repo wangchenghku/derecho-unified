@@ -27,7 +27,7 @@
 namespace derecho {
 
 /** Alias for the type of std::function that is used for message delivery event callbacks. */
-using message_callback = std::function<void(int, long long int, char*, long long int)>;
+using message_callback = std::function<void(uint32_t, int, long long int, char*, long long int)>;
 
 /**
  * Bundles together a set of callback functions for message delivery events.
@@ -42,7 +42,7 @@ struct CallbackSet {
 struct SubgroupInfo {
     std::function<uint32_t(uint32_t)> num_subgroups;
     std::function<uint32_t(uint32_t, uint32_t)> num_shards;
-    std::function<std::vector<uint32_t>(uint32_t, uint32_t, uint32_t)> subgroup_membership;
+    std::function<std::vector<uint32_t>(std::vector<uint32_t>, uint32_t, uint32_t)> subgroup_membership;
 };
 
 struct DerechoParams : public mutils::ByteRepresentable {

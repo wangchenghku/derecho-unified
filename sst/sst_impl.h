@@ -219,6 +219,13 @@ void SST<DerivedSST>::put(std::vector<uint32_t> receiver_ranks, long long int of
                     }
                 }
                 std::cout << std::endl;
+
+		std::cout << "Set of indices: ";
+		for (auto i : receiver_ranks) {
+		  std::cout << i << " ";
+		}
+		std::cout << std::endl;
+		std::cout << "Number of members: " << num_members << std::endl;
             }
             continue;
         }

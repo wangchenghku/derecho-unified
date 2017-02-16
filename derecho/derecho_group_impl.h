@@ -94,7 +94,7 @@ DerechoGroup<dispatchersType>::DerechoGroup(
     for(uint i = 0; i < num_subgroups; ++i) {
         uint32_t num_shards = subgroup_info.num_shards(num_members, i);
         for(uint j = 0; j < num_shards; ++j) {
-            auto shard_members = subgroup_info.subgroup_membership(num_members, i, j);
+            auto shard_members = subgroup_info.subgroup_membership(members, i, j);
             // check if the node belongs to the shard
             auto it = std::find(shard_members.begin(), shard_members.end(), members[member_index]);
             if(it != shard_members.end()) {
@@ -104,7 +104,7 @@ DerechoGroup<dispatchersType>::DerechoGroup(
     }
 
     for(const auto p : subgroup_to_shard_n_index) {
-        auto num_shard_members = subgroup_info.subgroup_membership(num_members, p.first, p.second.first).size();
+        auto num_shard_members = subgroup_info.subgroup_membership(members, p.first, p.second.first).size();
         while(free_message_buffers[p.first].size() < window_size * num_shard_members) {
             free_message_buffers[p.first].emplace_back(max_msg_size);
         }
@@ -192,7 +192,7 @@ DerechoGroup<dispatchersType>::DerechoGroup(
     for(uint i = 0; i < num_subgroups; ++i) {
         uint32_t num_shards = subgroup_info.num_shards(num_members, i);
         for(uint j = 0; j < num_shards; ++j) {
-            auto shard_members = subgroup_info.subgroup_membership(num_members, i, j);
+            auto shard_members = subgroup_info.subgroup_membership(members, i, j);
             // check if the node belongs to the shard
             auto it = std::find(shard_members.begin(), shard_members.end(), members[member_index]);
             if(it != shard_members.end()) {
@@ -202,7 +202,7 @@ DerechoGroup<dispatchersType>::DerechoGroup(
     }
 
     for(const auto p : subgroup_to_shard_n_index) {
-        auto num_shard_members = subgroup_info.subgroup_membership(num_members, p.first, p.second.first).size();
+        auto num_shard_members = subgroup_info.subgroup_membership(members, p.first, p.second.first).size();
         while(free_message_buffers[p.first].size() < window_size * num_shard_members) {
             free_message_buffers[p.first].emplace_back(max_msg_size);
         }
@@ -213,7 +213,7 @@ DerechoGroup<dispatchersType>::DerechoGroup(
     std::lock_guard<std::mutex> lock(old_group.msg_state_mtx);
     for(const auto p : subgroup_to_shard_n_index) {
         const auto subgroup_num = p.first, shard_num = p.second.first;
-        const auto num_shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num).size();
+        const auto num_shard_members = subgroup_info.subgroup_membership(members, subgroup_num, shard_num).size();
         // for later: don't move extra message buffers
         free_message_buffers[subgroup_num].swap(old_group.free_message_buffers[subgroup_num]);
         while(free_message_buffers[subgroup_num].size() < old_group.window_size * num_shard_members) {
@@ -307,7 +307,7 @@ std::function<void(persistence::message)> DerechoGroup<handlersType>::make_file_
         for(sender_rank = 0; sender_rank < num_members; ++sender_rank) {
             if(members[sender_rank] == m.sender) break;
         }
-        callbacks.local_persistence_callback(sender_rank, m.index, m.data,
+        callbacks.local_persistence_callback(m.subgroup_num, sender_rank, m.index, m.data,
                                              m.length);
 
         // m.data points to the char[] buffer in a MessageBuffer, so we need to find
@@ -335,7 +335,7 @@ bool DerechoGroup<dispatchersType>::create_rdmc_groups() {
         uint32_t num_shards = subgroup_info.num_shards(num_members, i);
         uint32_t max_shard_members = 0;
         for(uint j = 0; j < num_shards; ++j) {
-            auto shard_members = subgroup_info.subgroup_membership(num_members, i, j);
+	  auto shard_members = subgroup_info.subgroup_membership(members, i, j);
             auto num_shard_members = shard_members.size();
             if(max_shard_members < num_shard_members) {
                 max_shard_members = num_shard_members;
@@ -541,7 +541,7 @@ void DerechoGroup<dispatchersType>::deliver_message(Message& msg, uint32_t subgr
         }
         // raw send
         else {
-            callbacks.global_stability_callback(msg.sender_rank, msg.index,
+	  callbacks.global_stability_callback(subgroup_num, msg.sender_rank, msg.index,
                                                 buf + h->header_size, msg.size);
         }
         if(file_writer) {
@@ -588,7 +588,7 @@ void DerechoGroup<dispatchersType>::register_predicates() {
         uint32_t subgroup_num = p.first;
         uint32_t shard_num = p.second.first;
         uint32_t shard_index = p.second.second;
-        auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
+        auto shard_members = subgroup_info.subgroup_membership(members, subgroup_num, shard_num);
         auto num_shard_members = shard_members.size();
         auto stability_pred = [this](
             const DerechoSST& sst) { return true; };
@@ -728,7 +728,7 @@ void DerechoGroup<dispatchersType>::send_loop() {
             return false;
         }
 
-        auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
+        auto shard_members = subgroup_info.subgroup_membership(members, subgroup_num, shard_num);
         auto num_shard_members = shard_members.size();
         assert(num_shard_members > 1);
         for(uint i = 0; i < num_shard_members; ++i) {
@@ -819,7 +819,7 @@ char* DerechoGroup<dispatchersType>::get_sendbuffer_ptr(
     auto p = subgroup_to_shard_n_index[subgroup_num];
     auto shard_num = p.first;
     auto shard_index = p.second;
-    auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
+    auto shard_members = subgroup_info.subgroup_membership(members, subgroup_num, shard_num);
     auto num_shard_members = shard_members.size();
 
     for(uint i = 0; i < num_shard_members; ++i) {
@@ -1039,7 +1039,7 @@ template <typename dispatchersType>
 std::vector<uint32_t> DerechoGroup<dispatchersType>::get_shard_sst_indices(uint32_t subgroup_num) {
     auto p = subgroup_to_shard_n_index[subgroup_num];
     auto shard_num = p.first;
-    auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
+    auto shard_members = subgroup_info.subgroup_membership(members, subgroup_num, shard_num);
 
     std::vector<uint32_t> shard_sst_indices;
     for(auto m : shard_members) {

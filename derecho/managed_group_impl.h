@@ -610,7 +610,7 @@ void ManagedGroup<dispatcherType>::setup_derecho(CallbackSet callbacks,
     curr_view->gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
                                                          curr_view->members, curr_view->members[curr_view->my_rank],
                                                          [this](const uint32_t node_id) { report_failure(node_id); }, curr_view->failed, false),
-                                                     subgroup_info.num_subgroups(curr_view->members.size()), calc_nReceived_size(curr_view->members.size()));
+                                                     subgroup_info.num_subgroups(curr_view->members.size()), calc_nReceived_size(curr_view->members));
 
     // after this function returns, we're going to call put on the entire row anyways
     gmssst::set(curr_view->gmsSST->vid[curr_view->my_rank], curr_view->vid);
@@ -632,7 +632,7 @@ void ManagedGroup<dispatcherType>::transition_sst_and_rdmc(View<dispatcherType>&
     newView.gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
                                                       newView.members, newView.members[newView.my_rank],
                                                       [this](const uint32_t node_id) { report_failure(node_id); }, newView.failed, false),
-                                                  subgroup_info.num_subgroups(newView.members.size()), calc_nReceived_size(newView.members.size()));
+                                                  subgroup_info.num_subgroups(newView.members.size()), calc_nReceived_size(newView.members));
     std::cout << "Going to create the derecho group" << std::endl;
     newView.derecho_group = std::make_unique<DerechoGroup<dispatcherType>>(
         newView.members, newView.members[newView.my_rank], newView.gmsSST,
@@ -800,7 +800,6 @@ void ManagedGroup<dispatcherType>::deliver_in_order(const View<dispatcherType>& 
 template <typename dispatcherType>
 void ManagedGroup<dispatcherType>::ragged_edge_cleanup(View<dispatcherType>& Vc) {
     util::debug_log().log_event("Running RaggedEdgeCleanup");
-    uint32_t num_members = Vc.members.size();
     const auto subgroup_to_shard_n_index = Vc.derecho_group->get_subgroup_to_shard_n_index();
     const auto subgroup_to_nReceived_offset = Vc.derecho_group->get_subgroup_to_nReceived_offset();
     for(const auto p : subgroup_to_shard_n_index) {
@@ -808,7 +807,7 @@ void ManagedGroup<dispatcherType>::ragged_edge_cleanup(View<dispatcherType>& Vc)
         const auto shard_num = p.second.first;
         const auto index = p.second.second;
         const auto nReceived_offset = subgroup_to_nReceived_offset.at(subgroup_num);
-        const auto shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num);
+        const auto shard_members = subgroup_info.subgroup_membership(Vc.members, subgroup_num, shard_num);
 
         if(index == 0) {
             leader_ragged_edge_cleanup(Vc, subgroup_num, nReceived_offset - index, shard_members);
@@ -1026,14 +1025,15 @@ std::map<node_id_t, ip_addr> ManagedGroup<dispatcherType>::get_member_ips_map(
 }
 
 template <typename dispatcherType>
-uint32_t ManagedGroup<dispatcherType>::calc_nReceived_size(uint32_t num_members) {
+uint32_t ManagedGroup<dispatcherType>::calc_nReceived_size(std::vector<uint32_t> members) {
+    auto num_members = members.size();
     uint32_t sum = 0;
     auto num_subgroups = subgroup_info.num_subgroups(num_members);
     for(uint i = 0; i < num_subgroups; ++i) {
         auto num_shards = subgroup_info.num_shards(num_members, i);
         uint32_t max_shard_members = 0;
         for(uint j = 0; j < num_shards; ++j) {
-            auto shard_size = subgroup_info.subgroup_membership(num_members, i, j).size();
+            auto shard_size = subgroup_info.subgroup_membership(members, i, j).size();
             if(shard_size > max_shard_members) {
                 max_shard_members = shard_size;
             }
@@ -1046,13 +1046,12 @@ uint32_t ManagedGroup<dispatcherType>::calc_nReceived_size(uint32_t num_members)
 
 template <typename dispatcherType>
 std::map<uint32_t, std::vector<MessageBuffer>> ManagedGroup<dispatcherType>::create_message_buffers() {
-    uint32_t num_members = curr_view->members.size();
     const auto subgroup_to_shard_n_index = curr_view->derecho_group->get_subgroup_to_shard_n_index();
     std::map<uint32_t, std::vector<MessageBuffer>> message_buffers;
     auto max_msg_size = DerechoGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
     for(const auto p : subgroup_to_shard_n_index) {
         const auto subgroup_num = p.first, shard_num = p.second.first;
-        const auto num_shard_members = subgroup_info.subgroup_membership(num_members, subgroup_num, shard_num).size();
+        const auto num_shard_members = subgroup_info.subgroup_membership(curr_view->members, subgroup_num, shard_num).size();
         while(message_buffers[subgroup_num].size() < derecho_params.window_size * num_shard_members) {
             message_buffers[subgroup_num].emplace_back(max_msg_size);
         }

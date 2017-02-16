@@ -1,6 +1,7 @@
 #include <iostream>
 #include <map>
 
+#include "sst/poll_utils.h"
 #include "sst/verbs.h"
 
 using namespace std;
@@ -26,8 +27,8 @@ int main () {
   char *read_buf = (char*) malloc (10);
 
   // write message (in a way that distinguishes nodes)
-  for (int i = 0; i < 9; ++i) {
-    write_buf[i] = '0';
+  for (int i = 0; i < 10; ++i) {
+    write_buf[i] = '0' + i + node_rank%10;
   }
   write_buf[9] = 0;
 
@@ -38,36 +39,29 @@ int main () {
   // create the rdma struct for exchanging data
   resources *res = new resources (r_index, read_buf, write_buf, 10, 10);
   
+  const auto tid = std::this_thread::get_id();
+  // get id first
+  uint32_t id = util::polling_data.get_index(tid);
+
   // remotely write data from the write_buf
-  res->post_remote_write (10);
-  // poll for completion
-  verbs_poll_completion();
+  res->post_remote_write (id, 10);
 
-  sync(r_index);
-
-  cout << "Buffer written by remote side is : " << read_buf << endl;
-  
-  for (int i = 0; i < 10; ++i) {
-    write_buf[i] = '0' + i + node_rank%10;
+  while (true) {
+      // poll for completion
+      auto ce = util::polling_data.get_completion_entry(tid);
+      if (ce) {
+	break;
+      }
   }
-  write_buf[9] = 0;
-
-  cout << "write buffer is " << write_buf << endl;
-
-  // remotely write data from the write_buf
-  res->post_remote_write (1, 2);
-  // poll for completion
-  verbs_poll_completion();
-  
   sync(r_index);
 
   cout << "Buffer written by remote side is : " << read_buf << endl;
+  
+  // // destroy resources
+  // delete(res);
 
-  // destroy resources
-  delete(res);
-
-  // destroy global resources
-  verbs_destroy();
+  // // destroy global resources
+  // verbs_destroy();
 
   return 0;
 }

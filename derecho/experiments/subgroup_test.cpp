@@ -44,47 +44,79 @@ int main(int argc, char *argv[]) {
         long long unsigned int max_msg_size = 1000000;
         long long unsigned int block_size = 100000;
 
-        int num_messages = 10;
-        int received_count = 0;
+        int num_messages = 100;
 
-        bool done = false;
-        auto stability_callback = [&num_messages, &done, &received_count](
-            int sender_rank, long long int index, char *buf,
+        auto stability_callback = [&node_id, &num_messages](
+            uint32_t subgroup_num, int sender_rank, long long int index, char *buf,
             long long int msg_size) {
-            received_count++;
-            cout << "In stability callback; sender = " << sender_rank
-                 << ", index = " << index << endl;
-            if(received_count == num_messages) {
-                done = true;
-            }
+	  if (subgroup_num == 1 && index == 10 && node_id == 0) {
+	    cout << "Exiting" << endl;
+	    cout << "The last message is: " << endl;
+	    cout << buf << endl;
+	    exit(0);
+	  }
+	  if (subgroup_num == 1 && index == 50 && (node_id == 3 || node_id == 5)) {
+	    cout << "Exiting" << endl;
+	    cout << "The last message is: " << endl;
+	    cout << buf << endl;
+	    exit(0);
+	  }
+	  if (index == 100) {
+	    cout << "Received the last message in subgroup " << subgroup_num << " from sender " << sender_rank << endl;
+	    cout << "The last message is: " << endl;
+	    cout << buf << endl;
+	  }
+            // cout << "In stability callback; sender = " << sender_rank
+	    // << ", index = " << index << endl;
         };
-
+	
         derecho::CallbackSet callbacks{stability_callback, nullptr};
         derecho::DerechoParams param_object{max_msg_size, block_size};
         Dispatcher<> empty_dispatcher(node_id);
         std::unique_ptr<derecho::ManagedGroup<Dispatcher<>>> managed_group;
 
         derecho::SubgroupInfo subgroup_info{[](uint32_t num_members) {
-	    if (num_members >= 3) {
+	    if (num_members >= 7) {
+	      return 3;
+	    }
+	    else if (num_members >= 5) {
 	      return 2;
 	    }
 	    return 0;
-        },
-                                            [](uint32_t num_members, uint32_t subgroup_num) {
-					      return 1;
-                                            },
-                                            [](uint32_t num_members, uint32_t subgroup_num, uint32_t shard_num) {
-					      std::vector<uint32_t> members;
-					      if (subgroup_num == 0) {
-						members.push_back(0);
-						members.push_back(1);
-					      }
-					      else {
-						members.push_back(1);
-						members.push_back(2);
-					      }
-					      return members;
-                                            }};
+	  },
+	    [](uint32_t num_members, uint32_t subgroup_num) {
+	      if (subgroup_num == 0) {
+	      	return 2;
+	      }
+	      else if (subgroup_num == 1) {
+	      	return 3;
+	      }
+	      else if (subgroup_num == 2) {
+	      	return 1;
+	      }
+	      else {
+	      	return 1;
+	      }
+	    },
+	      [](std::vector<uint32_t> all_members, uint32_t subgroup_num, uint32_t shard_num) {
+		std::vector<uint32_t> members;
+		uint32_t step = 0;
+		if (subgroup_num == 0) {
+		  step = 2;
+		}
+		else if (subgroup_num == 1) {
+		  step = 3;
+		}
+		else {
+		  step = 4;
+		}
+		for (auto n : all_members) {
+		  if (n%step == shard_num) {
+		    members.push_back(n);
+		  }
+		}
+		return members;
+	      }};
         if(node_id == leader_id) {
             assert(my_ip == leader_ip);
             managed_group = std::make_unique<derecho::ManagedGroup<Dispatcher<>>>(
@@ -99,41 +131,49 @@ int main(int argc, char *argv[]) {
         while(managed_group->get_members().size() < num_nodes) {
         }
 
-        auto send = [&](uint32_t subgroup_num) {
+        auto send = [&]() {
 	  for(int i = 0; i < num_messages; ++i) {
-            // random message size between 1 and 100
-            unsigned int msg_size = (rand() % 7 + 2) * (max_msg_size / 10);
-            char *buf = managed_group->get_sendbuffer_ptr(subgroup_num, msg_size);
-            //        cout << "After getting sendbuffer for message " << i <<
-            //        endl;
-            //        managed_group.debug_print_status();
-            while(!buf) {
-                buf = managed_group->get_sendbuffer_ptr(subgroup_num, msg_size);
-            }
-            for(unsigned int j = 0; j < msg_size; ++j) {
-                buf[j] = 'a' + i;
-            }
-            //        cout << "Client telling DerechoGroup to send message " <<
-            //        i << "
-            //        with size " << msg_size << endl;;
-            managed_group->send(subgroup_num);
-	  } };
-        if(node_id == 1) {
-	  send(0);
-	  send(1);
-        }
-	else if (node_id == 0){
-	  send(0);
-	}
-	else if (node_id == 2) {
-	  send(1);
-	}
+	    for (uint j = 0; j < 3; ++j) {
+	      // random message size between 1 and 100
+	      unsigned int msg_size = (rand() % 7 + 2) * (max_msg_size / 10);
+	      char *buf = managed_group->get_sendbuffer_ptr(j, msg_size);
+	      bool not_sending = false;
+	      //        cout << "After getting sendbuffer for message " << i <<
+	      //        endl;
+	      //        managed_group.debug_print_status();
+	      while(!buf) {
+		buf = managed_group->get_sendbuffer_ptr(j, msg_size);
+		if ((managed_group->get_members().size() == 7) && (j == 2)) {
+		  not_sending = true;
+		  break;
+		}
+		if ((managed_group->get_members().size() < 6)) {
+		  not_sending = true;
+		  break;
+		}
+	      }
+	      if (not_sending) {
+		continue;
+	      }
+	      for(unsigned int k = 0; k < msg_size-1; ++k) {
+		buf[k] = 'a' + j;
+	      }
+	      buf[msg_size-1] = 0;
+	      //        cout << "Client telling DerechoGroup to send message " <<
+	      //        i << "
+	      //        with size " << msg_size << endl;;
+	      managed_group->send(j);
+	    }
+	  }
+	};
 
-	// everything that follow is rendered irrelevant
+	send();
+	
+        // everything that follows is rendered irrelevant
         while(true) {
         }
 
-	cout << "Done" << endl;
+        cout << "Done" << endl;
         managed_group->barrier_sync();
 
         managed_group->leave();
