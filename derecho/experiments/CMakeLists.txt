@@ -49,6 +49,10 @@ target_link_libraries(gms_test derecho)
 add_executable(gms_test2 gms_test2.cpp block_size.cpp)
 target_link_libraries(gms_test2 derecho)
 
+# latency_test
+add_executable(latency_test latency_test.cpp block_size.cpp)
+target_link_libraries(latency_test derecho)
+
 # gms_bw_test
 add_executable(gms_bw_test gms_bw_test.cpp)
 target_link_libraries(gms_bw_test derecho)
