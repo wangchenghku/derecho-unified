@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
                  << endl;
             return -1;
         }
-        if(argc < 2) {
+        if(argc < 3) {
             cout << "Error: Expected message size as second argument."
                  << endl;
             return -1;
