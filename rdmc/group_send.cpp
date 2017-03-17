@@ -110,6 +110,7 @@ void polling_group::receive_block(uint32_t send_imm, size_t received_block_size)
         assert(*first_block_number == parse_immediate(send_imm).block_number);
 
         //////////////////////////////////////////////////////
+		DERECHO_LOG(10 + group_number, message_number, "rdmc_incoming_message");
         auto destination = incoming_message_upcall(message_size);
         mr_offset = destination.offset;
         mr = destination.mr;
@@ -369,6 +370,7 @@ void polling_group::complete_message() {
         LOG_EVENT(group_number, message_number, *first_block_number,
                   "finished_remap_first_block");
     }
+	DERECHO_LOG(10 + group_number, message_number, "rdmc_message_completed");
     completion_callback(mr->buffer + mr_offset, message_size);
 
     ++message_number;

@@ -85,6 +85,7 @@ void destroy_group(uint16_t group_number) {
 void shutdown() { shutdown_flag = true; }
 bool send(uint16_t group_number, shared_ptr<memory_region> mr, size_t offset,
           size_t length) {
+	DERECHO_LOG(-1, -1, "rdmc_initiated_send");
     if(shutdown_flag) return false;
 
     shared_ptr<group> g;
