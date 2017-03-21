@@ -6,6 +6,8 @@
 #include <limits>
 #include <thread>
 
+#include "rdmc/util.h"
+
 #include "logger.h"
 #include "multicast_group.h"
 
@@ -293,7 +295,7 @@ bool MulticastGroup<dispatchersType>::create_rdmc_groups() {
         // locally_stable_messages and update the received count
         auto rdmc_receive_handler = [this, groupnum](char* data, size_t size) {
             assert(this->sst);
-            util::debug_log().log_event(std::stringstream() << "Locally received message from sender " << groupnum << ": index = " << (sst->nReceived[member_index][groupnum] + 1));
+            /* util::debug_log().log_event(std::stringstream() << "Locally received message from sender " << groupnum << ": index = " << (sst->nReceived[member_index][groupnum] + 1)); */
             std::lock_guard<std::mutex> lock(msg_state_mtx);
             header *h = (header *)data;
             sst->nReceived[member_index][groupnum]++;
@@ -328,7 +330,7 @@ bool MulticastGroup<dispatchersType>::create_rdmc_groups() {
             int min_index = std::distance(&sst->nReceived[member_index][0], min_ptr);
             auto new_seq_num = (*min_ptr + 1) * num_members + min_index - 1;
             if(new_seq_num > sst->seq_num[member_index]) {
-                util::debug_log().log_event(std::stringstream() << "Updating seq_num to "  << new_seq_num);
+                /* util::debug_log().log_event(std::stringstream() << "Updating seq_num to "  << new_seq_num); */
                 sst->seq_num[member_index] = new_seq_num;
                 std::atomic_signal_fence(std::memory_order_acq_rel);
                 sst->put();
@@ -406,6 +408,7 @@ void MulticastGroup<dispatchersType>::initialize_sst_row() {
 
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
+	DERECHO_LOG(-1, -1, "deliver_message()");
     if(msg.size > 0) {
         char* buf = msg.message_buffer.buffer.get();
         header* h = (header*)(buf);
@@ -459,8 +462,10 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
         }
         // raw send
         else {
+			DERECHO_LOG(-1, -1, "start_stability_callback");
             callbacks.global_stability_callback(msg.sender_rank, msg.index,
                                                 buf + h->header_size, msg.size);
+			DERECHO_LOG(-1, -1, "end_stability_callback");
         }
         if(file_writer) {
             // msg.sender_rank is the 0-indexed rank within this group, but
@@ -473,7 +478,9 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
             non_persistent_messages.emplace(sequence_number, std::move(msg));
             file_writer->write_message(msg_for_filewriter);
         } else {
+			DERECHO_LOG(-1, -1, "start_free_buffer");
             free_message_buffers.push_back(std::move(msg.message_buffer));
+			DERECHO_LOG(-1, -1, "end_free_buffer");
         }
     }
 }
@@ -481,6 +488,7 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::deliver_messages_upto(
     const std::vector<long long int>& max_indices_for_senders) {
+	DERECHO_LOG(-1, -1, "deliver_messages_upto()");
     assert(max_indices_for_senders.size() == (size_t)num_members);
     std::lock_guard<std::mutex> lock(msg_state_mtx);
     auto curr_seq_num = sst->delivered_num[member_index];
@@ -491,11 +499,14 @@ void MulticastGroup<dispatchersType>::deliver_messages_upto(
             std::max(max_seq_num,
                      max_indices_for_senders[sender] * num_members + sender);
     }
+	DERECHO_LOG(-1, -1, "deliver_messages_upto_loop");
     for(auto seq_num = curr_seq_num; seq_num <= max_seq_num; seq_num++) {
         auto msg_ptr = locally_stable_messages.find(seq_num);
         if(msg_ptr != locally_stable_messages.end()) {
             deliver_message(msg_ptr->second);
+			DERECHO_LOG(-1, -1, "erase_message");
             locally_stable_messages.erase(msg_ptr);
+			DERECHO_LOG(-1, -1, "erase_message_done");
         }
     }
 }
@@ -514,9 +525,9 @@ void MulticastGroup<dispatchersType>::register_predicates() {
                 }
             }
             if(min_seq_num > sst.stable_num[member_index]) {
-                util::debug_log().log_event(std::stringstream()
-                                            << "Updating stable_num to "
-                                            << min_seq_num);
+                /* util::debug_log().log_event(std::stringstream() */
+                /*                             << "Updating stable_num to " */
+                /*                             << min_seq_num); */
                 sst.stable_num[member_index] = min_seq_num;
                 sst.put();
             }
@@ -537,21 +548,29 @@ void MulticastGroup<dispatchersType>::register_predicates() {
             }
         }
 
-        if(!locally_stable_messages.empty()) {
+		bool update_sst = false;
+        while(!locally_stable_messages.empty()) {
             long long int least_undelivered_seq_num =
                 locally_stable_messages.begin()->first;
             if(least_undelivered_seq_num <= min_stable_num) {
-                util::debug_log().log_event(std::stringstream() << "Can deliver a locally stable message: min_stable_num=" << min_stable_num << " and least_undelivered_seq_num=" << least_undelivered_seq_num);
+                /* util::debug_log().log_event(std::stringstream() << "Can deliver a locally stable message: min_stable_num=" << min_stable_num << " and least_undelivered_seq_num=" << least_undelivered_seq_num); */
                 Message& msg = locally_stable_messages.begin()->second;
                 deliver_message(msg);
+				DERECHO_LOG(-1, -1, "deliver_message() done");
                 sst.delivered_num[member_index] = least_undelivered_seq_num;
                 //                sst.put (offsetof (DerechoRow<N>,
                 //                delivered_num), sizeof
                 //                (least_undelivered_seq_num));
-                sst.put();
                 locally_stable_messages.erase(locally_stable_messages.begin());
-            }
+				DERECHO_LOG(-1, -1, "message_erase_done");
+				update_sst = true;
+            } else {
+				break;
+			}
         }
+		if(update_sst) {
+			sst.put();
+		}
     };
     delivery_pred_handle = sst->predicates.insert(delivery_pred, delivery_trig, sst::PredicateType::RECURRENT);
 
@@ -623,6 +642,7 @@ void MulticastGroup<dispatchersType>::wedge() {
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::send_loop() {
     auto should_send = [&]() {
+		DERECHO_LOG(-1, -1, "should_send_start");
         if(!rdmc_groups_created) {
             return false;
         }
@@ -640,7 +660,7 @@ void MulticastGroup<dispatchersType>::send_loop() {
                 return false;
             }
         }
-
+		DERECHO_LOG(-1, -1, "should_send_end");
         return true;
     };
     auto should_wake = [&]() { return thread_shutdown || should_send(); };
@@ -650,13 +670,16 @@ void MulticastGroup<dispatchersType>::send_loop() {
             sender_cv.wait(lock, should_wake);
             if(!thread_shutdown) {
                 current_send = std::move(pending_sends.front());
-                util::debug_log().log_event(std::stringstream() << "Calling send on message " << current_send->index
-                                                                << " from sender " << current_send->sender_rank);
+				DERECHO_LOG(-1, -1, "got_current_send");
+                /* util::debug_log().log_event(std::stringstream() << "Calling send on message " << current_send->index */
+                /*                                                 << " from sender " << current_send->sender_rank); */
+				DERECHO_LOG(-1, -1, "did_log_event");
                 if(!rdmc::send(member_index + rdmc_group_num_offset,
                                current_send->message_buffer.mr, 0,
                                current_send->size)) {
                     throw std::runtime_error("rdmc::send returned false");
                 }
+				DERECHO_LOG(-1, -1, "issued_rdmc_send");
                 pending_sends.pop();
             }
         }

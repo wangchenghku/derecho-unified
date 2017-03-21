@@ -306,7 +306,7 @@ void Group<dispatcherType>::create_threads() {
     client_listener_thread = std::thread{[this]() {
         while(!thread_shutdown) {
             tcp::socket client_socket = server_socket.accept();
-            util::debug_log().log_event(std::stringstream() << "Background thread got a client connection from " << client_socket.remote_ip);
+            /* util::debug_log().log_event(std::stringstream() << "Background thread got a client connection from " << client_socket.remote_ip); */
             pending_join_sockets.locked().access.emplace_back(std::move(client_socket));
         }
         std::cout << "Connection listener thread shutting down." << std::endl;
@@ -833,8 +833,8 @@ void Group<dispatcherType>::deliver_in_order(const View<dispatcherType>& Vc, int
                          std::string(" ");
         max_received_indices[n] = Vc.gmsSST->globalMin[Leader][n];
     }
-    util::debug_log().log_event("Delivering ragged-edge messages in order: " +
-                                deliveryOrder);
+    /* util::debug_log().log_event("Delivering ragged-edge messages in order: " + */
+    /*                             deliveryOrder); */
     //    std::cout << "Delivery Order (View " << Vc.vid << ") {" <<
     //    deliveryOrder << std::string("}") << std::endl;
     Vc.derecho_group->deliver_messages_upto(max_received_indices);
@@ -842,13 +842,13 @@ void Group<dispatcherType>::deliver_in_order(const View<dispatcherType>& Vc, int
 
 template <typename dispatcherType>
 void Group<dispatcherType>::ragged_edge_cleanup(View<dispatcherType>& Vc) {
-    util::debug_log().log_event("Running RaggedEdgeCleanup");
+    /* util::debug_log().log_event("Running RaggedEdgeCleanup"); */
     if(Vc.i_am_leader()) {
         leader_ragged_edge_cleanup(Vc);
     } else {
         follower_ragged_edge_cleanup(Vc);
     }
-    util::debug_log().log_event("Done with RaggedEdgeCleanup");
+    /* util::debug_log().log_event("Done with RaggedEdgeCleanup"); */
 }
 
 template <typename dispatcherType>
@@ -877,7 +877,7 @@ void Group<dispatcherType>::leader_ragged_edge_cleanup(View<dispatcherType>& Vc)
         }
     }
 
-    util::debug_log().log_event("Leader finished computing globalMin");
+    /* util::debug_log().log_event("Leader finished computing globalMin"); */
     gmssst::set(Vc.gmsSST->globalMinReady[myRank], true);
     Vc.gmsSST->put();
 
@@ -888,7 +888,7 @@ template <typename dispatcherType>
 void Group<dispatcherType>::follower_ragged_edge_cleanup(View<dispatcherType>& Vc) {
     int myRank = Vc.my_rank;
     // Learn the leader's data and push it before acting upon it
-    util::debug_log().log_event("Received leader's globalMin; echoing it");
+    /* util::debug_log().log_event("Received leader's globalMin; echoing it"); */
     int Leader = Vc.rank_of_leader();
     gmssst::set(Vc.gmsSST->globalMin[myRank], Vc.gmsSST->globalMin[Leader],
                 Vc.num_members);
