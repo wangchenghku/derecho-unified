@@ -29,11 +29,11 @@ public:
     sst::SSTFieldVector<uint64_t> num_received;
 };
 
-template <uint32_t window_size, uint32_t max_msg_size, uint32_t max_members>
-struct Row {
-    Message<max_msg_size> slots[window_size];
-    uint64_t num_received[max_members];
-};
+// template <uint32_t window_size, uint32_t max_msg_size, uint32_t max_members>
+// struct Row {
+//     Message<max_msg_size> slots[window_size];
+//     uint64_t num_received[max_members];
+// };
 
 typedef std::function<void(uint32_t, uint64_t, volatile char*, uint32_t size)>
     receiver_callback_t;
@@ -154,7 +154,7 @@ public:
         uint32_t slot = num_sent % window_size;
         num_sent++;
         sst.slots[my_rank][slot].next_seq++;
-        sst.put(
+	sst.put(
             (char*)std::addressof(sst.slots[0][slot]) -
                 sst.getBaseAddress(),
             sizeof(Message<max_msg_size>));

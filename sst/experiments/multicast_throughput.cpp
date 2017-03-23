@@ -43,6 +43,7 @@ int main() {
                 done = true;
             }
         });
+    cout << "Ready to go" << endl;
     // uint count = 0;
     // start timer
     clock_gettime(CLOCK_REALTIME, &start_time);
