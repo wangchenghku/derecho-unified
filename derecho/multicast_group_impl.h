@@ -642,7 +642,9 @@ void MulticastGroup<dispatchersType>::wedge() {
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::send_loop() {
     auto should_send = [&]() {
-      // DERECHO_LOG(-1, -1, "should_send_start");
+      if (log_send) {
+	DERECHO_LOG(-1, -1, "should_send_start");
+      }
         if(!rdmc_groups_created) {
             return false;
         }
@@ -660,7 +662,8 @@ void MulticastGroup<dispatchersType>::send_loop() {
                 return false;
             }
         }
-	// DERECHO_LOG(-1, -1, "should_send_end");
+      DERECHO_LOG(-1, -1, "should_send_end");
+      log_send = false;
         return true;
     };
     auto should_wake = [&]() { return thread_shutdown || should_send(); };
@@ -668,26 +671,25 @@ void MulticastGroup<dispatchersType>::send_loop() {
         while(!thread_shutdown) {
 	  // sender_cv.wait(lock, should_wake);
 	  while (true) {
-	    std::lock_guard<std::mutex> lock(msg_state_mtx);
-	    if (should_wake()) {
-	      break;
-	    }
-	  }
-	  std::unique_lock<std::mutex> lock(msg_state_mtx);
-            if(!thread_shutdown) {
-                current_send = std::move(pending_sends.front());
-				DERECHO_LOG(-1, -1, "got_current_send");
-                /* util::debug_log().log_event(std::stringstream() << "Calling send on message " << current_send->index */
-                /*                                                 << " from sender " << current_send->sender_rank); */
-				DERECHO_LOG(-1, -1, "did_log_event");
-                if(!rdmc::send(member_index + rdmc_group_num_offset,
-                               current_send->message_buffer.mr, 0,
-                               current_send->size)) {
-                    throw std::runtime_error("rdmc::send returned false");
-                }
-				DERECHO_LOG(-1, -1, "issued_rdmc_send");
-                pending_sends.pop();
-            }
+          std::lock_guard<std::mutex> lock(msg_state_mtx);
+          if(should_wake()) {
+              if(!thread_shutdown) {
+                  current_send = std::move(pending_sends.front());
+                  DERECHO_LOG(-1, -1, "got_current_send");
+                  /* util::debug_log().log_event(std::stringstream() << "Calling send on message " << current_send->index */
+                  /*                                                 << " from sender " << current_send->sender_rank); */
+                  // DERECHO_LOG(-1, -1, "did_log_event");
+                  if(!rdmc::send(member_index + rdmc_group_num_offset,
+                                 current_send->message_buffer.mr, 0,
+                                 current_send->size)) {
+                      throw std::runtime_error("rdmc::send returned false");
+                  }
+                  DERECHO_LOG(-1, -1, "issued_rdmc_send");
+                  pending_sends.pop();
+              }
+              break;
+          }
+      }
         }
         std::cout << "DerechoGroup send thread shutting down" << std::endl;
     } catch(const std::exception& e) {
@@ -713,6 +715,7 @@ bool MulticastGroup<dispatchersType>::send() {
     pending_sends.push(std::move(*next_send));
     next_send = std::experimental::nullopt;
     DERECHO_LOG(-1, -1, "send_call_finished");
+    log_send = true;
     // sender_cv.notify_all();
     return true;
 }

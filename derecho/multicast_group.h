@@ -292,6 +292,8 @@ private:
     auto tcpSend(node_id_t dest_node, Args&&... args);
     // private get_position - used for cooked send
 
+  bool log_send = false;
+  
 public:
     // the constructor - takes the list of members, send parameters (block size, buffer size), K0 and K1 callbacks
     MulticastGroup(
