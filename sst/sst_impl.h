@@ -156,81 +156,81 @@ void SST<DerivedSST>::put(std::vector<uint32_t> receiver_ranks, long long int of
             continue;
         }
         // perform a remote RDMA write on the owner of the row
-        res_vec[index]->post_remote_write(id, offset, size);
+        res_vec[index]->post_remote_write(0, offset, size);
         // posted_write_to[index] = true;
         // num_writes_posted++;
     }
 
     return;
     
-    // track which nodes haven't failed yet
-    std::vector<bool> polled_successfully_from(num_members, false);
+    // // track which nodes haven't failed yet
+    // std::vector<bool> polled_successfully_from(num_members, false);
 
-    std::vector<uint32_t> failed_node_indexes;
+    // std::vector<uint32_t> failed_node_indexes;
 
-    /** Completion Queue poll timeout in millisec */
-    const int MAX_POLL_CQ_TIMEOUT = 2000;
-    unsigned long start_time_msec;
-    unsigned long cur_time_msec;
-    struct timeval cur_time;
+    // /** Completion Queue poll timeout in millisec */
+    // const int MAX_POLL_CQ_TIMEOUT = 2000;
+    // unsigned long start_time_msec;
+    // unsigned long cur_time_msec;
+    // struct timeval cur_time;
 
-    // wait for completion for a while before giving up of doing it ..
-    gettimeofday(&cur_time, NULL);
-    start_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
+    // // wait for completion for a while before giving up of doing it ..
+    // gettimeofday(&cur_time, NULL);
+    // start_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
 
-    // poll for surviving number of rows
-    for(unsigned int index = 0; index < num_writes_posted; ++index) {
-        std::experimental::optional<std::pair<int32_t, int32_t>> ce;
+    // // poll for surviving number of rows
+    // for(unsigned int index = 0; index < num_writes_posted; ++index) {
+    //     std::experimental::optional<std::pair<int32_t, int32_t>> ce;
 
-        while(true) {
-            // check if polling result is available
-            ce = util::polling_data.get_completion_entry(tid);
-            if(ce) {
-                break;
-            }
-            gettimeofday(&cur_time, NULL);
-            cur_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
-            if((cur_time_msec - start_time_msec) >= MAX_POLL_CQ_TIMEOUT) {
-                break;
-            }
-        }
-        // if waiting for a completion entry timed out
-        if(!ce) {
-            // find some node that hasn't been polled yet and report it
-            for(unsigned int index2 = 0; index2 < num_members; ++index2) {
-                if(!posted_write_to[index2] ||
-                   polled_successfully_from[index2]) {
-                    continue;
-                }
+    //     while(true) {
+    //         // check if polling result is available
+    //         ce = util::polling_data.get_completion_entry(tid);
+    //         if(ce) {
+    //             break;
+    //         }
+    //         gettimeofday(&cur_time, NULL);
+    //         cur_time_msec = (cur_time.tv_sec * 1000) + (cur_time.tv_usec / 1000);
+    //         if((cur_time_msec - start_time_msec) >= MAX_POLL_CQ_TIMEOUT) {
+    //             break;
+    //         }
+    //     }
+    //     // if waiting for a completion entry timed out
+    //     if(!ce) {
+    //         // find some node that hasn't been polled yet and report it
+    //         for(unsigned int index2 = 0; index2 < num_members; ++index2) {
+    //             if(!posted_write_to[index2] ||
+    //                polled_successfully_from[index2]) {
+    //                 continue;
+    //             }
 
-                std::cout << "Reporting failure on row " << index2
-                          << " due to a missing poll completion" << std::endl;
-                failed_node_indexes.push_back(index2);
-            }
-            continue;
-        }
+    //             std::cout << "Reporting failure on row " << index2
+    //                       << " due to a missing poll completion" << std::endl;
+    //             failed_node_indexes.push_back(index2);
+    //         }
+    //         continue;
+    //     }
 
-        auto ce_v = ce.value();
-        int qp_num = ce_v.first;
-        int result = ce_v.second;
-        if(result == 1) {
-            int index = qp_num_to_index[qp_num];
-            polled_successfully_from[index] = true;
-        } else if(result == -1) {
-            int index = qp_num_to_index[qp_num];
-            if(!row_is_frozen[index]) {
-                std::cerr << "Poll completion error in QP " << qp_num
-                          << ". Freezing row " << index << std::endl;
-                failed_node_indexes.push_back(index);
-            }
-        }
-    }
+    //     auto ce_v = ce.value();
+    //     int qp_num = ce_v.first;
+    //     int result = ce_v.second;
+    //     if(result == 1) {
+    //         int index = qp_num_to_index[qp_num];
+    //         polled_successfully_from[index] = true;
+    //     } else if(result == -1) {
+    //         int index = qp_num_to_index[qp_num];
+    //         if(!row_is_frozen[index]) {
+    //             std::cerr << "Poll completion error in QP " << qp_num
+    //                       << ". Freezing row " << index << std::endl;
+    //             failed_node_indexes.push_back(index);
+    //         }
+    //     }
+    // }
 
-    util::polling_data.reset_waiting(tid);
+    // util::polling_data.reset_waiting(tid);
 
-    for(auto index : failed_node_indexes) {
-        freeze(index);
-    }
+    // for(auto index : failed_node_indexes) {
+    //     freeze(index);
+    // }
 }
 
 template <typename DerivedSST>

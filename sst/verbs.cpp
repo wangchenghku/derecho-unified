@@ -406,7 +406,7 @@ void polling_loop() {
     std::cout << "Polling thread starting" << std::endl;
     while(!shutdown) {
         auto ce = verbs_poll_completion();
-        util::polling_data.insert_completion_entry(ce.first, ce.second);
+        // util::polling_data.insert_completion_entry(ce.first, ce.second);
     }
     std::cout << "Polling thread ending" << std::endl;
 }
@@ -514,7 +514,7 @@ void resources_create() {
                     "Could not create completion queue, error code is " +
                         std::to_string(errno));
 
-    // start the polling thread
+    // // start the polling thread
     polling_thread = std::thread(polling_loop);
 }
 
