@@ -344,7 +344,7 @@ bool MulticastGroup<dispatchersType>::create_rdmc_groups() {
             [this, rdmc_receive_handler](char* data, size_t size) {
                 rdmc_receive_handler(data, size);
                 // signal background writer thread
-                sender_cv.notify_all();
+                // sender_cv.notify_all();
             };
         // groupnum is the group number
         // receive destination checks if the message will exceed the buffer length
@@ -584,7 +584,7 @@ void MulticastGroup<dispatchersType>::register_predicates() {
         return true;
     };
     auto sender_trig = [this](DerechoSST& sst) {
-        sender_cv.notify_all();
+      // sender_cv.notify_all();
         next_message_to_deliver++;
     };
     sender_pred_handle = sst->predicates.insert(sender_pred, sender_trig,
@@ -633,7 +633,7 @@ void MulticastGroup<dispatchersType>::wedge() {
     }
     connections.destroy();
 
-    sender_cv.notify_all();
+    // sender_cv.notify_all();
     if(sender_thread.joinable()) {
         sender_thread.join();
     }
@@ -642,7 +642,7 @@ void MulticastGroup<dispatchersType>::wedge() {
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::send_loop() {
     auto should_send = [&]() {
-		DERECHO_LOG(-1, -1, "should_send_start");
+      // DERECHO_LOG(-1, -1, "should_send_start");
         if(!rdmc_groups_created) {
             return false;
         }
@@ -660,14 +660,20 @@ void MulticastGroup<dispatchersType>::send_loop() {
                 return false;
             }
         }
-		DERECHO_LOG(-1, -1, "should_send_end");
+	// DERECHO_LOG(-1, -1, "should_send_end");
         return true;
     };
     auto should_wake = [&]() { return thread_shutdown || should_send(); };
     try {
-        std::unique_lock<std::mutex> lock(msg_state_mtx);
         while(!thread_shutdown) {
-            sender_cv.wait(lock, should_wake);
+	  // sender_cv.wait(lock, should_wake);
+	  while (true) {
+	    std::lock_guard<std::mutex> lock(msg_state_mtx);
+	    if (should_wake()) {
+	      break;
+	    }
+	  }
+	  std::unique_lock<std::mutex> lock(msg_state_mtx);
             if(!thread_shutdown) {
                 current_send = std::move(pending_sends.front());
 				DERECHO_LOG(-1, -1, "got_current_send");
@@ -706,7 +712,8 @@ bool MulticastGroup<dispatchersType>::send() {
     assert(next_send);
     pending_sends.push(std::move(*next_send));
     next_send = std::experimental::nullopt;
-    sender_cv.notify_all();
+    DERECHO_LOG(-1, -1, "send_call_finished");
+    // sender_cv.notify_all();
     return true;
 }
 
