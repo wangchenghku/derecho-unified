@@ -141,14 +141,14 @@ void SST<DerivedSST>::detect() {
 
 template <typename DerivedSST>
 void SST<DerivedSST>::put(std::vector<uint32_t> receiver_ranks, long long int offset, long long int size) {
-    unsigned int num_writes_posted = 0;
-    std::vector<bool> posted_write_to(num_members, false);
+    // unsigned int num_writes_posted = 0;
+    // std::vector<bool> posted_write_to(num_members, false);
 
-    const auto tid = std::this_thread::get_id();
-    // get id first
-    uint32_t id = util::polling_data.get_index(tid);
+    // const auto tid = std::this_thread::get_id();
+    // // get id first
+    // uint32_t id = util::polling_data.get_index(tid);
 
-    util::polling_data.set_waiting(tid);
+    // util::polling_data.set_waiting(tid);
 
     for(auto index : receiver_ranks) {
         // don't write to yourself or a frozen row
@@ -157,10 +157,12 @@ void SST<DerivedSST>::put(std::vector<uint32_t> receiver_ranks, long long int of
         }
         // perform a remote RDMA write on the owner of the row
         res_vec[index]->post_remote_write(id, offset, size);
-        posted_write_to[index] = true;
-        num_writes_posted++;
+        // posted_write_to[index] = true;
+        // num_writes_posted++;
     }
 
+    return;
+    
     // track which nodes haven't failed yet
     std::vector<bool> polled_successfully_from(num_members, false);
 
