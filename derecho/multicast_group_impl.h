@@ -343,8 +343,9 @@ bool MulticastGroup<dispatchersType>::create_rdmc_groups() {
         auto receive_handler_plus_notify =
             [this, rdmc_receive_handler](char* data, size_t size) {
                 rdmc_receive_handler(data, size);
+		DERECHO_LOG(-1, -1, "received_message");
                 // signal background writer thread
-                // sender_cv.notify_all();
+                sender_cv.notify_all();
             };
         // groupnum is the group number
         // receive destination checks if the message will exceed the buffer length
@@ -408,7 +409,7 @@ void MulticastGroup<dispatchersType>::initialize_sst_row() {
 
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
-	DERECHO_LOG(-1, -1, "deliver_message()");
+    DERECHO_LOG(-1, -1, "deliver_message()");
     if(msg.size > 0) {
         char* buf = msg.message_buffer.buffer.get();
         header* h = (header*)(buf);
@@ -462,10 +463,10 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
         }
         // raw send
         else {
-			DERECHO_LOG(-1, -1, "start_stability_callback");
+            DERECHO_LOG(-1, -1, "start_stability_callback");
             callbacks.global_stability_callback(msg.sender_rank, msg.index,
                                                 buf + h->header_size, msg.size);
-			DERECHO_LOG(-1, -1, "end_stability_callback");
+            DERECHO_LOG(-1, -1, "end_stability_callback");
         }
         if(file_writer) {
             // msg.sender_rank is the 0-indexed rank within this group, but
@@ -478,9 +479,9 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
             non_persistent_messages.emplace(sequence_number, std::move(msg));
             file_writer->write_message(msg_for_filewriter);
         } else {
-			DERECHO_LOG(-1, -1, "start_free_buffer");
+            DERECHO_LOG(-1, -1, "start_free_buffer");
             free_message_buffers.push_back(std::move(msg.message_buffer));
-			DERECHO_LOG(-1, -1, "end_free_buffer");
+            DERECHO_LOG(-1, -1, "end_free_buffer");
         }
     }
 }
@@ -488,7 +489,7 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::deliver_messages_upto(
     const std::vector<long long int>& max_indices_for_senders) {
-	DERECHO_LOG(-1, -1, "deliver_messages_upto()");
+    DERECHO_LOG(-1, -1, "deliver_messages_upto()");
     assert(max_indices_for_senders.size() == (size_t)num_members);
     std::lock_guard<std::mutex> lock(msg_state_mtx);
     auto curr_seq_num = sst->delivered_num[member_index];
@@ -499,14 +500,14 @@ void MulticastGroup<dispatchersType>::deliver_messages_upto(
             std::max(max_seq_num,
                      max_indices_for_senders[sender] * num_members + sender);
     }
-	DERECHO_LOG(-1, -1, "deliver_messages_upto_loop");
+    DERECHO_LOG(-1, -1, "deliver_messages_upto_loop");
     for(auto seq_num = curr_seq_num; seq_num <= max_seq_num; seq_num++) {
         auto msg_ptr = locally_stable_messages.find(seq_num);
         if(msg_ptr != locally_stable_messages.end()) {
             deliver_message(msg_ptr->second);
-			DERECHO_LOG(-1, -1, "erase_message");
+            DERECHO_LOG(-1, -1, "erase_message");
             locally_stable_messages.erase(msg_ptr);
-			DERECHO_LOG(-1, -1, "erase_message_done");
+            DERECHO_LOG(-1, -1, "erase_message_done");
         }
     }
 }
@@ -556,7 +557,7 @@ void MulticastGroup<dispatchersType>::register_predicates() {
                 /* util::debug_log().log_event(std::stringstream() << "Can deliver a locally stable message: min_stable_num=" << min_stable_num << " and least_undelivered_seq_num=" << least_undelivered_seq_num); */
                 Message& msg = locally_stable_messages.begin()->second;
                 deliver_message(msg);
-				DERECHO_LOG(-1, -1, "deliver_message() done");
+                DERECHO_LOG(-1, -1, "deliver_message() done");
                 sst.delivered_num[member_index] = least_undelivered_seq_num;
                 //                sst.put (offsetof (DerechoRow<N>,
                 //                delivered_num), sizeof
@@ -584,7 +585,7 @@ void MulticastGroup<dispatchersType>::register_predicates() {
         return true;
     };
     auto sender_trig = [this](DerechoSST& sst) {
-      // sender_cv.notify_all();
+        sender_cv.notify_all();
         next_message_to_deliver++;
     };
     sender_pred_handle = sst->predicates.insert(sender_pred, sender_trig,
@@ -633,7 +634,7 @@ void MulticastGroup<dispatchersType>::wedge() {
     }
     connections.destroy();
 
-    // sender_cv.notify_all();
+    sender_cv.notify_all();
     if(sender_thread.joinable()) {
         sender_thread.join();
     }
@@ -642,9 +643,7 @@ void MulticastGroup<dispatchersType>::wedge() {
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::send_loop() {
     auto should_send = [&]() {
-      if (log_send) {
-	DERECHO_LOG(-1, -1, "should_send_start");
-      }
+		DERECHO_LOG(-1, -1, "should_send_start");
         if(!rdmc_groups_created) {
             return false;
         }
@@ -662,34 +661,28 @@ void MulticastGroup<dispatchersType>::send_loop() {
                 return false;
             }
         }
-      DERECHO_LOG(-1, -1, "should_send_end");
-      log_send = false;
+		DERECHO_LOG(-1, -1, "should_send_end");
         return true;
     };
     auto should_wake = [&]() { return thread_shutdown || should_send(); };
     try {
+        std::unique_lock<std::mutex> lock(msg_state_mtx);
         while(!thread_shutdown) {
-	  // sender_cv.wait(lock, should_wake);
-	  while (true) {
-          std::lock_guard<std::mutex> lock(msg_state_mtx);
-          if(should_wake()) {
-              if(!thread_shutdown) {
-                  current_send = std::move(pending_sends.front());
-                  DERECHO_LOG(-1, -1, "got_current_send");
-                  /* util::debug_log().log_event(std::stringstream() << "Calling send on message " << current_send->index */
-                  /*                                                 << " from sender " << current_send->sender_rank); */
-                  // DERECHO_LOG(-1, -1, "did_log_event");
-                  if(!rdmc::send(member_index + rdmc_group_num_offset,
-                                 current_send->message_buffer.mr, 0,
-                                 current_send->size)) {
-                      throw std::runtime_error("rdmc::send returned false");
-                  }
-                  DERECHO_LOG(-1, -1, "issued_rdmc_send");
-                  pending_sends.pop();
-              }
-              break;
-          }
-      }
+            sender_cv.wait(lock, should_wake);
+            if(!thread_shutdown) {
+                current_send = std::move(pending_sends.front());
+                DERECHO_LOG(-1, -1, "got_current_send");
+                /* util::debug_log().log_event(std::stringstream() << "Calling send on message " << current_send->index */
+                /*                                                 << " from sender " << current_send->sender_rank); */
+                // DERECHO_LOG(-1, -1, "did_log_event");
+                if(!rdmc::send(member_index + rdmc_group_num_offset,
+                               current_send->message_buffer.mr, 0,
+                               current_send->size)) {
+                    throw std::runtime_error("rdmc::send returned false");
+                }
+                DERECHO_LOG(-1, -1, "issued_rdmc_send");
+                pending_sends.pop();
+            }
         }
         std::cout << "DerechoGroup send thread shutting down" << std::endl;
     } catch(const std::exception& e) {
@@ -714,9 +707,7 @@ bool MulticastGroup<dispatchersType>::send() {
     assert(next_send);
     pending_sends.push(std::move(*next_send));
     next_send = std::experimental::nullopt;
-    DERECHO_LOG(-1, -1, "send_call_finished");
-    log_send = true;
-    // sender_cv.notify_all();
+    sender_cv.notify_all();
     return true;
 }
 
@@ -813,7 +804,7 @@ auto MulticastGroup<dispatchersType>::derechoCallerSend(
 template <typename dispatchersType>
 template <typename IDClass, unsigned long long tag, typename... Args>
 void MulticastGroup<dispatchersType>::orderedSend(const std::vector<node_id_t>& nodes,
-                                                char* buf, Args&&... args) {
+                                                  char* buf, Args&&... args) {
     derechoCallerSend<IDClass, tag>(nodes, buf, std::forward<Args>(args)...);
 }
 
@@ -827,7 +818,7 @@ void MulticastGroup<dispatchersType>::orderedSend(char* buf, Args&&... args) {
 template <typename dispatchersType>
 template <typename IdClass, unsigned long long tag, typename... Args>
 auto MulticastGroup<dispatchersType>::orderedQuery(const std::vector<node_id_t>& nodes,
-                                                 char* buf, Args&&... args) {
+                                                   char* buf, Args&&... args) {
     return derechoCallerSend<IdClass, tag>(nodes, buf, std::forward<Args>(args)...);
 }
 
@@ -840,7 +831,7 @@ auto MulticastGroup<dispatchersType>::orderedQuery(char* buf, Args&&... args) {
 template <typename dispatchersType>
 template <typename IdClass, unsigned long long tag, typename... Args>
 auto MulticastGroup<dispatchersType>::tcpSend(node_id_t dest_node,
-                                            Args&&... args) {
+                                              Args&&... args) {
     assert(dest_node != members[member_index]);
     // use dest_node
 
@@ -868,14 +859,14 @@ auto MulticastGroup<dispatchersType>::tcpSend(node_id_t dest_node,
 template <typename dispatchersType>
 template <typename IdClass, unsigned long long tag, typename... Args>
 void MulticastGroup<dispatchersType>::p2pSend(node_id_t dest_node,
-                                            Args&&... args) {
+                                              Args&&... args) {
     tcpSend<IdClass, tag>(dest_node, std::forward<Args>(args)...);
 }
 
 template <typename dispatchersType>
 template <typename IdClass, unsigned long long tag, typename... Args>
 auto MulticastGroup<dispatchersType>::p2pQuery(node_id_t dest_node,
-                                             Args&&... args) {
+                                               Args&&... args) {
     return tcpSend<IdClass, tag>(dest_node, std::forward<Args>(args)...);
 }
 
