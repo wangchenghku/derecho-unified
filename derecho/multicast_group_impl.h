@@ -68,12 +68,10 @@ MulticastGroup<dispatchersType>::MulticastGroup(
           member_index(index_of(members, my_node_id)),
           block_size(derecho_params.block_size),
           max_msg_size(compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size)),
-          type(derecho_params.type),
           window_size(derecho_params.window_size),
           callbacks(callbacks),
           dispatchers(std::move(_dispatchers)),
           connections(my_node_id, ip_addrs, derecho_params.rpc_port),
-          rdmc_group_num_offset(0),
           sender_timeout(derecho_params.timeout_ms),
           sst(_sst) {
     assert(window_size >= 1);
@@ -106,10 +104,10 @@ MulticastGroup<dispatchersType>::MulticastGroup(
     if(!already_failed.size() || no_member_failed) {
         // if groups are created successfully, rdmc_groups_created will be set
         // to true
-        rdmc_groups_created = create_rdmc_groups();
+        sst_multicast_group_created = create_sst_multicast_group();
     }
     register_predicates();
-    sender_thread = std::thread(&MulticastGroup::send_loop, this);
+    // sender_thread = std::thread(&MulticastGroup::send_loop, this);
     timeout_thread = std::thread(&MulticastGroup::check_failures_loop, this);
     rpc_thread = std::thread(&MulticastGroup::rpc_process_loop, this);
     //    cout << "DerechoGroup: Registered predicates and started thread" <<
@@ -127,22 +125,19 @@ MulticastGroup<dispatchersType>::MulticastGroup(
           member_index(index_of(members, my_node_id)),
           block_size(old_group.block_size),
           max_msg_size(old_group.max_msg_size),
-          type(old_group.type),
           window_size(old_group.window_size),
           callbacks(old_group.callbacks),
           dispatchers(std::move(old_group.dispatchers)),
           connections(my_node_id, ip_addrs, rpc_port),
           toFulfillQueue(std::move(old_group.toFulfillQueue)),
           fulfilledList(std::move(old_group.fulfilledList)),
-          rdmc_group_num_offset(old_group.rdmc_group_num_offset +
-                                old_group.num_members),
           total_message_buffers(old_group.total_message_buffers),
           sender_timeout(old_group.sender_timeout),
           sst(_sst) {
-    // Make sure rdmc_group_num_offset didn't overflow.
-    assert(old_group.rdmc_group_num_offset <=
-           std::numeric_limits<uint16_t>::max() - old_group.num_members -
-               num_members);
+    // // Make sure rdmc_group_num_offset didn't overflow.
+    // assert(old_group.rdmc_group_num_offset <=
+    //        std::numeric_limits<uint16_t>::max() - old_group.num_members -
+    //            num_members);
 
     // Just in case
     old_group.wedge();
@@ -168,10 +163,10 @@ MulticastGroup<dispatchersType>::MulticastGroup(
         total_message_buffers++;
     }
 
-    for(auto& msg : old_group.current_receives) {
-        free_message_buffers.push_back(std::move(msg.second.message_buffer));
-    }
-    old_group.current_receives.clear();
+    // for(auto& msg : old_group.current_receives) {
+    //     free_message_buffers.push_back(std::move(msg.second.message_buffer));
+    // }
+    // old_group.current_receives.clear();
     p2pBuffer = std::move(old_group.p2pBuffer);
     deliveryBuffer = std::move(old_group.deliveryBuffer);
 
@@ -226,10 +221,10 @@ MulticastGroup<dispatchersType>::MulticastGroup(
     if(!already_failed.size() || no_member_failed) {
         // if groups are created successfully, rdmc_groups_created will be set
         // to true
-        rdmc_groups_created = create_rdmc_groups();
+        sst_multicast_group_created = create_sst_multicast_group();
     }
     register_predicates();
-    sender_thread = std::thread(&MulticastGroup::send_loop, this);
+    // sender_thread = std::thread(&MulticastGroup::send_loop, this);
     timeout_thread = std::thread(&MulticastGroup::check_failures_loop, this);
     rpc_thread = std::thread(&MulticastGroup::rpc_process_loop, this);
     //    cout << "DerechoGroup: Registered predicates and started thread" <<
@@ -265,9 +260,9 @@ std::function<void(persistence::message)> MulticastGroup<handlersType>::make_fil
 }
 
 template <typename dispatchersType>
-bool MulticastGroup<dispatchersType>::create_rdmc_groups() {
-    // rotated list of members - used for creating n internal RDMC groups
-    std::vector<uint32_t> rotated_members(num_members);
+bool MulticastGroup<dispatchersType>::create_sst_multicast_groups() {
+    // // rotated list of members - used for creating n internal RDMC groups
+    // std::vector<uint32_t> rotated_members(num_members);
 
     std::cout << "The members are" << std::endl;
     for(int i = 0; i < num_members; ++i) {
@@ -275,56 +270,22 @@ bool MulticastGroup<dispatchersType>::create_rdmc_groups() {
     }
     std::cout << std::endl;
 
-    // create num_members groups one at a time
-    for(int groupnum = 0; groupnum < num_members; ++groupnum) {
-        /* members[groupnum] is the sender for group `groupnum`
-         * for now, we simply rotate the members vector to supply to create_group
-         * even though any arrangement of receivers in the members vector is possible
-         */
-        // allocate buffer for the group
-        // std::unique_ptr<char[]> buffer(new char[max_msg_size*window_size]);
-        // buffers.push_back(std::move(buffer));
-        // create a memory region encapsulating the buffer
-        // std::shared_ptr<rdma::memory_region> mr =
-        // std::make_shared<rdma::memory_region>(buffers[groupnum].get(),max_msg_size*window_size);
-        // mrs.push_back(mr);
-        for(int j = 0; j < num_members; ++j) {
-            rotated_members[j] = members[(groupnum + j) % num_members];
-        }
-        // When RDMC receives a message, it should store it in
-        // locally_stable_messages and update the received count
-        auto rdmc_receive_handler = [this, groupnum](char* data, size_t size) {
-            assert(this->sst);
+    auto sst_receive_handler = [this](uint32_t sender_rank, uint64_t index, char* data, size_t size) {
             /* util::debug_log().log_event(std::stringstream() << "Locally received message from sender " << groupnum << ": index = " << (sst->nReceived[member_index][groupnum] + 1)); */
             std::lock_guard<std::mutex> lock(msg_state_mtx);
-            header *h = (header *)data;
-            sst->nReceived[member_index][groupnum]++;
+            // header *h = (header *)data;
+            sst->nReceived[member_index][sender_rank]++;
+            long long int sequence_number = index * num_members + sender_rank;
+	    
+            // // Add empty messages to locally_stable_messages for each turn that the sender is skipping.
+            // for(unsigned int j = 0; j < h->pause_sending_turns; ++j) {
+            //     index++;
+            //     sequence_number += num_members;
+            //     sst->nReceived[member_index][sender_rank]++;
+            //     locally_stable_messages[sequence_number] = {sender_rank, index, 0, 0};
+            // }
 
-            long long int index = sst->nReceived[member_index][groupnum];
-            long long int sequence_number = index * num_members + groupnum;
-
-            // Move message from current_receives to locally_stable_messages.
-            if(groupnum == member_index) {
-                assert(current_send);
-                locally_stable_messages[sequence_number] =
-                    std::move(*current_send);
-                current_send = std::experimental::nullopt;
-            } else {
-                auto it = current_receives.find(sequence_number);
-                assert(it != current_receives.end());
-                auto& message = it->second;
-                locally_stable_messages.emplace(sequence_number, std::move(message));
-                current_receives.erase(it);
-            }
-            // Add empty messages to locally_stable_messages for each turn that the sender is skipping.
-            for(unsigned int j = 0; j < h->pause_sending_turns; ++j) {
-                index++;
-                sequence_number += num_members;
-                sst->nReceived[member_index][groupnum]++;
-                locally_stable_messages[sequence_number] = {groupnum, index, 0, 0};
-            }
-
-            std::atomic_signal_fence(std::memory_order_acq_rel);
+            // std::atomic_signal_fence(std::memory_order_acq_rel);
             auto* min_ptr = std::min_element(&sst->nReceived[member_index][0],
                                  &sst->nReceived[member_index][num_members]);
             int min_index = std::distance(&sst->nReceived[member_index][0], min_ptr);
@@ -332,64 +293,86 @@ bool MulticastGroup<dispatchersType>::create_rdmc_groups() {
             if(new_seq_num > sst->seq_num[member_index]) {
                 /* util::debug_log().log_event(std::stringstream() << "Updating seq_num to "  << new_seq_num); */
                 sst->seq_num[member_index] = new_seq_num;
-                std::atomic_signal_fence(std::memory_order_acq_rel);
                 sst->put();
             } else {
                 sst->put();
             }
-        };
-        // Capture rdmc_receive_handler by copy! The reference to it won't be valid
-        // after this constructor ends!
-        auto receive_handler_plus_notify =
-            [this, rdmc_receive_handler](char* data, size_t size) {
-                rdmc_receive_handler(data, size);
-		DERECHO_LOG(-1, -1, "received_message");
-                // signal background writer thread
-                sender_cv.notify_all();
-            };
-        // groupnum is the group number
-        // receive destination checks if the message will exceed the buffer length
-        // at current position in which case it returns the beginning position
-        if(groupnum == member_index) {
-            // In the group in which this node is the sender, we need to signal the writer thread
-            // to continue when we see that one of our messages was delivered.
-            if(!rdmc::create_group(
-                   groupnum + rdmc_group_num_offset, rotated_members, block_size, type,
-                   [this, groupnum](size_t length) -> rdmc::receive_destination {
-                       assert(false);
-                       return {nullptr, 0};
-                   },
-                   receive_handler_plus_notify,
-                   [](boost::optional<uint32_t>) {})) {
-                return false;
-            }
-        } else {
-            if(!rdmc::create_group(
-                   groupnum + rdmc_group_num_offset, rotated_members, block_size, type,
-                   [this, groupnum](size_t length) -> rdmc::receive_destination {
-                       std::lock_guard<std::mutex> lock(msg_state_mtx);
-                       assert(!free_message_buffers.empty());
+    };
 
-                       Message msg;
-                       msg.sender_rank = groupnum;
-                       msg.index = sst->nReceived[member_index][groupnum] + 1;
-                       msg.size = length;
-                       msg.message_buffer = std::move(free_message_buffers.back());
-                       free_message_buffers.pop_back();
-
-                       rdmc::receive_destination ret{msg.message_buffer.mr, 0};
-                       auto sequence_number = msg.index * num_members + groupnum;
-                       current_receives[sequence_number] = std::move(msg);
-
-                       assert(ret.mr->buffer != nullptr);
-                       return ret;
-                   },
-                   rdmc_receive_handler, [](boost::optional<uint32_t>) {})) {
-                return false;
-            }
-        }
-    }
+    multicast_group = new multicast_group<1000> (members, members[member_index], window_size, sst_receive_handler);
     return true;
+
+    // // create num_members groups one at a time
+    // for(int groupnum = 0; groupnum < num_members; ++groupnum) {
+    //     /* members[groupnum] is the sender for group `groupnum`
+    //      * for now, we simply rotate the members vector to supply to create_group
+    //      * even though any arrangement of receivers in the members vector is possible
+    //      */
+    //     // allocate buffer for the group
+    //     // std::unique_ptr<char[]> buffer(new char[max_msg_size*window_size]);
+    //     // buffers.push_back(std::move(buffer));
+    //     // create a memory region encapsulating the buffer
+    //     // std::shared_ptr<rdma::memory_region> mr =
+    //     // std::make_shared<rdma::memory_region>(buffers[groupnum].get(),max_msg_size*window_size);
+    //     // mrs.push_back(mr);
+    //     for(int j = 0; j < num_members; ++j) {
+    //         rotated_members[j] = members[(groupnum + j) % num_members];
+    //     }
+    //     // When RDMC receives a message, it should store it in
+    //     // locally_stable_messages and update the received count
+
+    //     // Capture rdmc_receive_handler by copy! The reference to it won't be valid
+    //     // after this constructor ends!
+    //     auto receive_handler_plus_notify =
+    //         [this, rdmc_receive_handler](char* data, size_t size) {
+    //             rdmc_receive_handler(data, size);
+    // 		DERECHO_LOG(-1, -1, "received_message");
+    //             // signal background writer thread
+    //             sender_cv.notify_all();
+    //         };
+    //     // groupnum is the group number
+    //     // receive destination checks if the message will exceed the buffer length
+    //     // at current position in which case it returns the beginning position
+    //     if(groupnum == member_index) {
+    //         // In the group in which this node is the sender, we need to signal the writer thread
+    //         // to continue when we see that one of our messages was delivered.
+    //         if(!rdmc::create_group(
+    //                groupnum + rdmc_group_num_offset, rotated_members, block_size, type,
+    //                [this, groupnum](size_t length) -> rdmc::receive_destination {
+    //                    assert(false);
+    //                    return {nullptr, 0};
+    //                },
+    //                receive_handler_plus_notify,
+    //                [](boost::optional<uint32_t>) {})) {
+    //             return false;
+    //         }
+    //     } else {
+    //         if(!rdmc::create_group(
+    //                groupnum + rdmc_group_num_offset, rotated_members, block_size, type,
+    //                [this, groupnum](size_t length) -> rdmc::receive_destination {
+    //                    std::lock_guard<std::mutex> lock(msg_state_mtx);
+    //                    assert(!free_message_buffers.empty());
+
+    //                    Message msg;
+    //                    msg.sender_rank = groupnum;
+    //                    msg.index = sst->nReceived[member_index][groupnum] + 1;
+    //                    msg.size = length;
+    //                    msg.message_buffer = std::move(free_message_buffers.back());
+    //                    free_message_buffers.pop_back();
+
+    //                    rdmc::receive_destination ret{msg.message_buffer.mr, 0};
+    //                    auto sequence_number = msg.index * num_members + groupnum;
+    //                    current_receives[sequence_number] = std::move(msg);
+
+    //                    assert(ret.mr->buffer != nullptr);
+    //                    return ret;
+    //                },
+    //                rdmc_receive_handler, [](boost::optional<uint32_t>) {})) {
+    //             return false;
+    //         }
+    //     }
+    // }
+    // return true;
 }
 
 template <typename dispatchersType>

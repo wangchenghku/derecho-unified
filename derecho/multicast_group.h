@@ -23,6 +23,8 @@
 #include "rdmc/rdmc.h"
 #include "sst/sst.h"
 
+#include "sst/sst_multicast.h"
+
 namespace derecho {
 
 /** Alias for the type of std::function that is used for message delivery event callbacks. */
@@ -201,7 +203,7 @@ private:
     const long long unsigned int max_msg_size;
     /** Send algorithm for constructing a multicast from point-to-point unicast.
      *  Binomial pipeline by default. */
-    const rdmc::send_algorithm type;
+    // const rdmc::send_algorithm type;
     const unsigned int window_size;
     const CallbackSet callbacks;
     dispatcherType dispatchers;
@@ -210,13 +212,14 @@ private:
     std::list<std::unique_ptr<PendingBase>> fulfilledList;
     std::mutex pending_results_mutex;
     /** Offset to add to member ranks to form RDMC group numbers. */
-    const uint16_t rdmc_group_num_offset;
+    // const uint16_t rdmc_group_num_offset;
     /** false if RDMC groups haven't been created successfully */
-    bool rdmc_groups_created = false;
+    // bool rdmc_groups_created = false;
+    bool sst_multicast_group_created = false;
     unsigned int total_message_buffers;
     /** Stores message buffers not currently in use. Protected by
      * msg_state_mtx */
-    std::vector<MessageBuffer> free_message_buffers;
+    // std::vector<MessageBuffer> free_message_buffers;
     std::unique_ptr<char[]> p2pBuffer;
     std::unique_ptr<char[]> deliveryBuffer;
 
@@ -233,17 +236,17 @@ private:
 
     /** next_message is the message that will be sent when send is called the next time.
      * It is boost::none when there is no message to send. */
-    std::experimental::optional<Message> next_send;
+    // std::experimental::optional<Message> next_send;
     /** Messages that are ready to be sent, but must wait until the current send finishes. */
-    std::queue<Message> pending_sends;
+    // std::queue<Message> pending_sends;
     /** The message that is currently being sent out using RDMC, or boost::none otherwise. */
-    std::experimental::optional<Message> current_send;
+    // std::experimental::optional<Message> current_send;
 
     /** Messages that are currently being received. */
-    std::map<long long int, Message> current_receives;
+    // std::map<long long int, Message> current_receives;
 
     /** Messages that have finished sending/receiving but aren't yet globally stable */
-    std::map<long long int, Message> locally_stable_messages;
+    // std::map<long long int, Message> locally_stable_messages;
     /** Messages that are currently being written to persistent storage */
     std::map<long long int, Message> non_persistent_messages;
 
@@ -257,13 +260,16 @@ private:
     /** Indicates that the group is being destroyed. */
     std::atomic<bool> thread_shutdown{false};
     /** The background thread that sends messages with RDMC. */
-    std::thread sender_thread;
+    // std::thread sender_thread;
 
     std::thread timeout_thread;
     std::thread rpc_thread;
 
     /** The SST, shared between this group and its GMS. */
     std::shared_ptr<DerechoSST> sst;
+
+    /** The SST for multicasts **/
+    sst_multicast_group<1000>* multicast_group;
 
     using pred_handle = typename sst::Predicates<DerechoSST>::pred_handle;
     pred_handle stability_pred_handle;
@@ -281,7 +287,8 @@ private:
     void check_failures_loop();
 
     std::function<void(persistence::message)> make_file_written_callback();
-    bool create_rdmc_groups();
+    // bool create_rdmc_groups();
+    bool create_sst_multicast_group();
     void initialize_sst_row();
     void register_predicates();
 
@@ -297,7 +304,7 @@ public:
     MulticastGroup(
         std::vector<node_id_t> _members, node_id_t my_node_id,
         std::shared_ptr<DerechoSST> _sst,
-        std::vector<MessageBuffer>& free_message_buffers,
+        // std::vector<MessageBuffer>& free_message_buffers,
         dispatcherType _dispatchers,
         CallbackSet callbacks,
         const DerechoParams derecho_params,
