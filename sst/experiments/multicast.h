@@ -40,6 +40,7 @@ typedef std::function<void(uint32_t, uint64_t, volatile char*, uint32_t size)>
 
 template <uint32_t max_msg_size>
 class group {
+    uint64_t num_puts = 0;
     // number of messages for which get_buffer has been called
     uint64_t num_queued = 0;
     // number of messages for which RDMA write is complete
@@ -101,9 +102,17 @@ class group {
                     }
                 }
             }
-            sst.put((char*)std::addressof(sst.num_received[0][0]) -
-                        sst.getBaseAddress(),
-                    sizeof(sst.num_received[0][0]) * num_members);
+            num_puts++;
+            if(num_puts <= window_size/2) {
+                sst.put((char*)std::addressof(sst.num_received[0][0]) -
+                            sst.getBaseAddress(),
+                        sizeof(sst.num_received[0][0]) * num_members);
+            } else {
+                sst.put_with_completion((char*)std::addressof(sst.num_received[0][0]) -
+                            sst.getBaseAddress(),
+                        sizeof(sst.num_received[0][0]) * num_members);
+		num_puts = 0;
+	    }
         };
         sst.predicates.insert(receiver_pred, receiver_trig,
                               sst::PredicateType::RECURRENT);
@@ -154,9 +163,18 @@ public:
         uint32_t slot = num_sent % window_size;
         num_sent++;
         sst.slots[my_rank][slot].next_seq++;
-	sst.put(
-            (char*)std::addressof(sst.slots[0][slot]) -
-                sst.getBaseAddress(),
-            sizeof(Message<max_msg_size>));
+        num_puts++;
+        if(num_puts <= window_size/2) {
+            sst.put(
+                (char*)std::addressof(sst.slots[0][slot]) -
+                    sst.getBaseAddress(),
+                sizeof(Message<max_msg_size>));
+        } else {
+            sst.put_with_completion(
+                (char*)std::addressof(sst.slots[0][slot]) -
+                    sst.getBaseAddress(),
+                sizeof(Message<max_msg_size>));
+            num_puts = 0;
+        }
     }
 };

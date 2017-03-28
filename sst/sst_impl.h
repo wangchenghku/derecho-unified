@@ -160,7 +160,7 @@ void SST<DerivedSST>::put(std::vector<uint32_t>& receiver_ranks, long long int o
     const auto tid = std::this_thread::get_id();
     // get id first
     uint32_t id = util::polling_data.get_index(tid);
-
+    
     util::polling_data.set_waiting(tid);
 
     for(auto index : receiver_ranks) {
@@ -169,7 +169,7 @@ void SST<DerivedSST>::put(std::vector<uint32_t>& receiver_ranks, long long int o
             continue;
         }
         // perform a remote RDMA write on the owner of the row
-        res_vec[index]->post_remote_write(0, offset, size);
+        res_vec[index]->post_remote_write_with_completion(id, offset, size);
         posted_write_to[index] = true;
         num_writes_posted++;
     }
