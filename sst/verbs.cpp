@@ -131,7 +131,8 @@ resources::resources(int r_index, char *write_addr, char *read_addr, int size_w,
     struct ibv_qp_init_attr qp_init_attr;
     memset(&qp_init_attr, 0, sizeof(qp_init_attr));
     qp_init_attr.qp_type = IBV_QPT_RC;
-    qp_init_attr.sq_sig_all = 1;
+    // disable automatic completion generation
+    qp_init_attr.sq_sig_all = 0;
     // same completion queue for both send and receive operations
     qp_init_attr.send_cq = g_res->cq;
     qp_init_attr.recv_cq = g_res->cq;
@@ -325,7 +326,7 @@ void resources::connect_qp() {
  * @return The return code of the IB Verbs post_send operation.
  */
 int resources::post_remote_send(uint32_t id, long long int offset, long long int size,
-                                int op) {
+                                int op, bool completion) {
     struct ibv_send_wr sr;
     struct ibv_sge sge;
     struct ibv_send_wr *bad_wr = NULL;
@@ -349,8 +350,9 @@ int resources::post_remote_send(uint32_t id, long long int offset, long long int
     } else {
         sr.opcode = IBV_WR_RDMA_WRITE;
     }
-    sr.send_flags = IBV_SEND_SIGNALED;
-
+    if (completion) {
+      sr.send_flags = IBV_SEND_SIGNALED;
+    }
     // set the remote rkey and virtual address
     sr.wr.rdma.remote_addr = remote_props.addr + offset;
     sr.wr.rdma.rkey = remote_props.rkey;
@@ -366,7 +368,7 @@ int resources::post_remote_send(uint32_t id, long long int offset, long long int
  * @param size The number of bytes to read from remote memory.
  */
 void resources::post_remote_read(uint32_t id, long long int size) {
-    int rc = post_remote_send(id, 0, size, 0);
+  int rc = post_remote_send(id, 0, size, 0, false);
     check_for_error(
         !rc, "Could not post RDMA read, error code is " + std::to_string(rc));
 }
@@ -376,7 +378,7 @@ void resources::post_remote_read(uint32_t id, long long int size) {
  * @param size The number of bytes to read from remote memory.
  */
 void resources::post_remote_read(uint32_t id, long long int offset, long long int size) {
-    int rc = post_remote_send(id, offset, size, 0);
+    int rc = post_remote_send(id, offset, size, 0, false);
     check_for_error(
         !rc, "Could not post RDMA read, error code is " + std::to_string(rc));
 }
@@ -385,7 +387,7 @@ void resources::post_remote_read(uint32_t id, long long int offset, long long in
  * memory.
  */
 void resources::post_remote_write(uint32_t id, long long int size) {
-    int rc = post_remote_send(id, 0, size, 1);
+    int rc = post_remote_send(id, 0, size, 1, false);
     check_for_error(
         !rc, "Could not post RDMA write, error code is " + std::to_string(rc));
 }
@@ -397,7 +399,19 @@ void resources::post_remote_write(uint32_t id, long long int size) {
  * memory.
  */
 void resources::post_remote_write(uint32_t id, long long int offset, long long int size) {
-    int rc = post_remote_send(id, offset, size, 1);
+    int rc = post_remote_send(id, offset, size, 1, false);
+    check_for_error(
+        !rc, "Could not post RDMA write, error code is " + std::to_string(rc));
+}
+
+void resources::post_remote_write_with_completion(uint32_t id, long long int size) {
+    int rc = post_remote_send(id, 0, size, 1, true);
+    check_for_error(
+        !rc, "Could not post RDMA write, error code is " + std::to_string(rc));
+}
+
+void resources::post_remote_write_with_completion(uint32_t id, long long int offset, long long int size) {
+  int rc = post_remote_send(id, offset, size, 1, true);
     check_for_error(
         !rc, "Could not post RDMA write, error code is " + std::to_string(rc));
 }
@@ -406,7 +420,7 @@ void polling_loop() {
     std::cout << "Polling thread starting" << std::endl;
     while(!shutdown) {
         auto ce = verbs_poll_completion();
-        // util::polling_data.insert_completion_entry(ce.first, ce.second);
+	util::polling_data.insert_completion_entry(ce.first, ce.second);
     }
     std::cout << "Polling thread ending" << std::endl;
 }
@@ -514,7 +528,7 @@ void resources_create() {
                     "Could not create completion queue, error code is " +
                         std::to_string(errno));
 
-    // // start the polling thread
+    // start the polling thread
     polling_thread = std::thread(polling_loop);
 }
 

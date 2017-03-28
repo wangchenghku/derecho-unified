@@ -29,7 +29,7 @@ int main () {
 
   // write message (in a way that distinguishes nodes)
   for (int i = 0; i < 9; ++i) {
-    write_buf[i] = '0';
+    write_buf[i] = '0' + i + node_rank%10;
   }
   write_buf[9] = 0;
 
@@ -45,24 +45,20 @@ int main () {
   uint32_t id = util::polling_data.get_index(tid);
 
   // remotely write data from the write_buf
-  res->post_remote_write (id, 10);
-  // poll for completion
-  util::polling_data.get_completion_entry(tid);
-
-  sync(r_index);
-
-  cout << "Buffer written by remote side is : " << read_buf << endl;
-  
-  for (int i = 0; i < 10; ++i) {
-    write_buf[i] = '0' + i + node_rank%10;
+  res->post_remote_write_with_completion (id, 10);
+  while(true) {
+      // poll for completion
+      auto ce = util::polling_data.get_completion_entry(tid);
+      if(ce) {
+          cout << "Got a completion entry" << endl;
+	  break;
+      }
   }
-  write_buf[9] = 0;
 
-  cout << "write buffer is " << write_buf << endl;
-  
   sync(r_index);
-  cout << "Buffer written by remote side is : " << read_buf << endl;
 
+  cout << "Buffer written by remote side is : " << read_buf << endl;
+  
   // destroy resources
   delete(res);
 

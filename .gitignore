@@ -38,3 +38,6 @@ CMakeFiles
 /derecho/experiments/gms_test2
 /sst/experiments/cpu_load_experiment
 /sst/experiments/multicast_throughput
+/derecho/experiments/latency_test
+/derecho/experiments/subgroup_test
+/derecho/experiments/typed_subgroup_test

@@ -182,6 +182,7 @@ private:
     const std::vector<uint32_t>& members;
     /** Equal to members.size() */
     const unsigned int num_members;
+    std::vector<uint32_t> all_indices;
     /** Index (row number) of this node in the SST. */
     unsigned int my_index;
     /** Maps node IDs to SST row indexes. */
@@ -218,6 +219,7 @@ public:
               thread_shutdown(false),
               members(params.members),
               num_members(members.size()),
+	      all_indices(num_members),
               my_node_id(params.my_node_id),
               row_is_frozen(num_members),
               failure_upcall(params.failure_upcall),
@@ -230,6 +232,8 @@ public:
                 my_index = i;
             }
         }
+
+	std::iota(all_indices.begin(), all_indices.end(), 0);
 
         if(!params.already_failed.empty()) {
             assert(params.already_failed.size() == num_members);
@@ -300,45 +304,35 @@ public:
 
     /** Writes the entire local row to all remote nodes. */
     void put() {
-        // std::vector<uint32_t> indices(num_members);
-        // std::iota(indices.begin(), indices.end(), 0);
-        // put(indices, 0, rowLen);
-      for(uint index = 0; index < num_members; ++index) {
-        // don't write to yourself or a frozen row
-        if(index == my_index || row_is_frozen[index]) {
-            continue;
-        }
-        // perform a remote RDMA write on the owner of the row
-        res_vec[index]->post_remote_write(0, 0, rowLen);
-        // posted_write_to[index] = true;
-        // num_writes_posted++;
+        put(all_indices, 0, rowLen);
     }
 
-    return;
+    void put_with_completion() {
+        put_with_completion(all_indices, 0, rowLen);
     }
 
     /** Writes the entire local row to some of the remote nodes. */
-    void put(std::vector<uint32_t> receiver_ranks) { put(receiver_ranks, 0, rowLen); }
+    void put(std::vector<uint32_t>& receiver_ranks) {
+        put(receiver_ranks, 0, rowLen);
+    }
+
+    void put_with_completion(std::vector<uint32_t>& receiver_ranks) {
+        put_with_completion(receiver_ranks, 0, rowLen);
+    }
 
     /** Writes a contiguous subset of the local row to all remote nodes. */
     void put(long long int offset, long long int size) {
-        // std::vector<uint32_t> indices(num_members);
-        // iota(indices.begin(), indices.end(), 0);
-        // put(indices, offset, size);
-        for(uint index = 0; index < num_members; ++index) {
-            // don't write to yourself or a frozen row
-            if(index == my_index || row_is_frozen[index]) {
-                continue;
-            }
-            // perform a remote RDMA write on the owner of the row
-            res_vec[index]->post_remote_write(0, offset, size);
-            // posted_write_to[index] = true;
-            // num_writes_posted++;
-        }
+        put(all_indices, offset, size);
+    }
+
+    void put_with_completion(long long int offset, long long int size) {
+        put_with_completion(all_indices, offset, size);
     }
 
     /** Writes a contiguous subset of the local row to some of the remote nodes. */
-    void put(std::vector<uint32_t> receiver_ranks, long long int offset, long long int size);
+    void put(std::vector<uint32_t>& receiver_ranks, long long int offset, long long int size);
+
+    void put_with_completion(std::vector<uint32_t>& receiver_ranks, long long int offset, long long int size);
 
 private:
     using char_p = volatile char*;
