@@ -128,22 +128,22 @@ auto createPending(PendingResults<T>& pending) {
  * RDMA memory region (which has registered that array of bytes as its buffer).
  * This is a move-only type, since memory regions can't be copied.
  */
-struct MessageBuffer {
-    std::unique_ptr<char[]> buffer;
-    std::shared_ptr<rdma::memory_region> mr;
+// struct MessageBuffer {
+//     std::unique_ptr<char[]> buffer;
+//     std::shared_ptr<rdma::memory_region> mr;
 
-    MessageBuffer() {}
-    MessageBuffer(size_t size) {
-        if(size != 0) {
-            buffer = std::unique_ptr<char[]>(new char[size]);
-            mr = std::make_shared<rdma::memory_region>(buffer.get(), size);
-        }
-    }
-    MessageBuffer(const MessageBuffer&) = delete;
-    MessageBuffer(MessageBuffer&&) = default;
-    MessageBuffer& operator=(const MessageBuffer&) = delete;
-    MessageBuffer& operator=(MessageBuffer&&) = default;
-};
+//     MessageBuffer() {}
+//     MessageBuffer(size_t size) {
+//         if(size != 0) {
+//             buffer = std::unique_ptr<char[]>(new char[size]);
+//             mr = std::make_shared<rdma::memory_region>(buffer.get(), size);
+//         }
+//     }
+//     MessageBuffer(const MessageBuffer&) = delete;
+//     MessageBuffer(MessageBuffer&&) = default;
+//     MessageBuffer& operator=(const MessageBuffer&) = delete;
+//     MessageBuffer& operator=(MessageBuffer&&) = default;
+// };
 
 struct Message {
     /** The rank of the message's sender within this group. */
@@ -153,7 +153,8 @@ struct Message {
     /** The message's size in bytes. */
     long long unsigned int size;
     /** The MessageBuffer that contains the message's body. */
-    MessageBuffer message_buffer;
+    // MessageBuffer message_buffer;
+    char* buf;
 };
 
 /**
@@ -216,7 +217,7 @@ private:
     /** false if RDMC groups haven't been created successfully */
     // bool rdmc_groups_created = false;
     bool sst_multicast_group_created = false;
-    unsigned int total_message_buffers;
+    // unsigned int total_message_buffers;
     /** Stores message buffers not currently in use. Protected by
      * msg_state_mtx */
     // std::vector<MessageBuffer> free_message_buffers;

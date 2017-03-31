@@ -57,7 +57,7 @@ template <typename dispatchersType>
 MulticastGroup<dispatchersType>::MulticastGroup(
     std::vector<node_id_t> _members, node_id_t my_node_id,
     std::shared_ptr<DerechoSST> _sst,
-    std::vector<MessageBuffer>& _free_message_buffers,
+    // std::vector<MessageBuffer>& _free_message_buffers,
     dispatchersType _dispatchers,
     CallbackSet callbacks,
     const DerechoParams derecho_params,
@@ -81,12 +81,12 @@ MulticastGroup<dispatchersType>::MulticastGroup(
                                                    derecho_params.filename);
     }
 
-    free_message_buffers.swap(_free_message_buffers);
-    while(free_message_buffers.size() < window_size * num_members) {
-        free_message_buffers.emplace_back(max_msg_size);
-    }
+    // free_message_buffers.swap(_free_message_buffers);
+    // while(free_message_buffers.size() < window_size * num_members) {
+    //     free_message_buffers.emplace_back(max_msg_size);
+    // }
 
-    total_message_buffers = free_message_buffers.size();
+    // total_message_buffers = free_message_buffers.size();
 
     p2pBuffer = std::unique_ptr<char[]>(new char[derecho_params.max_payload_size]);
     deliveryBuffer = std::unique_ptr<char[]>(new char[derecho_params.max_payload_size]);
@@ -157,11 +157,11 @@ MulticastGroup<dispatchersType>::MulticastGroup(
     // Reclaim MessageBuffers from the old group, and supplement them with
     // additional if the group has grown.
     std::lock_guard<std::mutex> lock(old_group.msg_state_mtx);
-    free_message_buffers.swap(old_group.free_message_buffers);
-    while(total_message_buffers < window_size * num_members) {
-        free_message_buffers.emplace_back(max_msg_size);
-        total_message_buffers++;
-    }
+    // free_message_buffers.swap(old_group.free_message_buffers);
+    // while(total_message_buffers < window_size * num_members) {
+    //     free_message_buffers.emplace_back(max_msg_size);
+    //     total_message_buffers++;
+    // }
 
     // for(auto& msg : old_group.current_receives) {
     //     free_message_buffers.push_back(std::move(msg.second.message_buffer));
@@ -181,7 +181,7 @@ MulticastGroup<dispatchersType>::MulticastGroup(
         if(p.second.sender_rank == old_group.member_index) {
             pending_sends.push(convert_msg(p.second));
         } else {
-            free_message_buffers.push_back(std::move(p.second.message_buffer));
+	  // free_message_buffers.push_back(std::move(p.second.message_buffer));
         }
     }
     old_group.locally_stable_messages.clear();
@@ -250,7 +250,7 @@ std::function<void(persistence::message)> MulticastGroup<handlersType>::make_fil
             auto find_result = non_persistent_messages.find(sequence_number);
             assert(find_result != non_persistent_messages.end());
             Message &m_msg = find_result->second;
-            free_message_buffers.push_back(std::move(m_msg.message_buffer));
+            // free_message_buffers.push_back(std::move(m_msg.message_buffer));
             non_persistent_messages.erase(find_result);
             sst->persisted_num[member_index] = sequence_number;
             sst->put();
@@ -276,6 +276,8 @@ bool MulticastGroup<dispatchersType>::create_sst_multicast_groups() {
             // header *h = (header *)data;
             sst->nReceived[member_index][sender_rank]++;
             long long int sequence_number = index * num_members + sender_rank;
+
+	    locally_stable_messages[sequence_number] = {sender_rank, index, data, size};
 	    
             // // Add empty messages to locally_stable_messages for each turn that the sender is skipping.
             // for(unsigned int j = 0; j < h->pause_sending_turns; ++j) {
@@ -394,7 +396,7 @@ template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
     DERECHO_LOG(-1, -1, "deliver_message()");
     if(msg.size > 0) {
-        char* buf = msg.message_buffer.buffer.get();
+        char* buf = msg.buf;
         header* h = (header*)(buf);
         // cooked send
         if(h->cooked_send) {
@@ -462,9 +464,9 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
             non_persistent_messages.emplace(sequence_number, std::move(msg));
             file_writer->write_message(msg_for_filewriter);
         } else {
-            DERECHO_LOG(-1, -1, "start_free_buffer");
-            free_message_buffers.push_back(std::move(msg.message_buffer));
-            DERECHO_LOG(-1, -1, "end_free_buffer");
+            // DERECHO_LOG(-1, -1, "start_free_buffer");
+            // free_message_buffers.push_back(std::move(msg.message_buffer));
+            // DERECHO_LOG(-1, -1, "end_free_buffer");
         }
     }
 }
@@ -683,15 +685,17 @@ void MulticastGroup<dispatchersType>::check_failures_loop() {
 
 template <typename dispatchersType>
 bool MulticastGroup<dispatchersType>::send() {
-    std::lock_guard<std::mutex> lock(msg_state_mtx);
-    if(thread_shutdown || !rdmc_groups_created) {
+    if(thread_shutdown || !sst_multicast_group_created) {
         return false;
     }
-    assert(next_send);
-    pending_sends.push(std::move(*next_send));
-    next_send = std::experimental::nullopt;
-    sender_cv.notify_all();
+    multicast_group->send();
     return true;
+    // std::lock_guard<std::mutex> lock(msg_state_mtx);
+    // assert(next_send);
+    // pending_sends.push(std::move(*next_send));
+    // next_send = std::experimental::nullopt;
+    // sender_cv.notify_all();
+    // return true;
 }
 
 template <typename dispatchersType>
@@ -722,15 +726,15 @@ char* MulticastGroup<dispatchersType>::get_position(
 
     std::unique_lock<std::mutex> lock(msg_state_mtx);
     if(thread_shutdown) return nullptr;
-    if(free_message_buffers.empty()) return nullptr;
+    // if(free_message_buffers.empty()) return nullptr;
 
     // Create new Message
     Message msg;
     msg.sender_rank = member_index;
     msg.index = future_message_index;
     msg.size = msg_size;
-    msg.message_buffer = std::move(free_message_buffers.back());
-    free_message_buffers.pop_back();
+    // msg.message_buffer = std::move(free_message_buffers.back());
+    // free_message_buffers.pop_back();
 
     // Fill header
     char* buf = msg.message_buffer.buffer.get();
