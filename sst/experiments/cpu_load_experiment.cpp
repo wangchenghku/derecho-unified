@@ -4,7 +4,7 @@
 
 #include "derecho/experiments/aggregate_bandwidth.h"
 #include "derecho/experiments/log_results.h"
-#include "multicast.h"
+#include "sst/sst_multicast.h"
 
 using namespace std;
 using namespace sst;
@@ -50,7 +50,7 @@ int main() {
 
 
     struct timespec start_time, end_time;
-    group<max_msg_size> g(
+    sst_multicast_group<max_msg_size> g(
         members, node_id, window_size, [&start_time, &last_message_index, &done, &node_id, &num_nodes](
                                            uint32_t sender_rank, uint64_t index,
                                            volatile char* msg, uint32_t size) {

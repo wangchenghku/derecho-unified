@@ -154,7 +154,7 @@ struct Message {
     long long unsigned int size;
     /** The MessageBuffer that contains the message's body. */
     // MessageBuffer message_buffer;
-    char* buf;
+    volatile char* buf;
 };
 
 /**
@@ -247,7 +247,7 @@ private:
     // std::map<long long int, Message> current_receives;
 
     /** Messages that have finished sending/receiving but aren't yet globally stable */
-    // std::map<long long int, Message> locally_stable_messages;
+    std::map<long long int, Message> locally_stable_messages;
     /** Messages that are currently being written to persistent storage */
     std::map<long long int, Message> non_persistent_messages;
 
@@ -281,7 +281,7 @@ private:
 
     /** Continuously waits for a new pending send, then sends it. This function
      * implements the sender thread. */
-    void send_loop();
+    // void send_loop();
 
     /** Checks for failures when a sender reaches its timeout. This function
      * implements the timeout thread. */

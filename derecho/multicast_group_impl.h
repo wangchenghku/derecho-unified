@@ -75,6 +75,8 @@ MulticastGroup<dispatchersType>::MulticastGroup(
           sender_timeout(derecho_params.timeout_ms),
           sst(_sst) {
     assert(window_size >= 1);
+    // this is only for SST multicast
+    assert(max_msg_size <= 1000);
 
     if(!derecho_params.filename.empty()) {
         file_writer = std::make_unique<FileWriter>(make_file_written_callback(),
@@ -131,7 +133,7 @@ MulticastGroup<dispatchersType>::MulticastGroup(
           connections(my_node_id, ip_addrs, rpc_port),
           toFulfillQueue(std::move(old_group.toFulfillQueue)),
           fulfilledList(std::move(old_group.fulfilledList)),
-          total_message_buffers(old_group.total_message_buffers),
+          // total_message_buffers(old_group.total_message_buffers),
           sender_timeout(old_group.sender_timeout),
           sst(_sst) {
     // // Make sure rdmc_group_num_offset didn't overflow.
@@ -148,7 +150,7 @@ MulticastGroup<dispatchersType>::MulticastGroup(
         msg.sender_rank = member_index;
         msg.index = future_message_index++;
 
-        header* h = (header*)msg.message_buffer.buffer.get();
+        header* h = (header*)msg.buf;
         future_message_index += h->pause_sending_turns;
 
         return std::move(msg);
@@ -178,25 +180,25 @@ MulticastGroup<dispatchersType>::MulticastGroup(
             continue;
         }
 
-        if(p.second.sender_rank == old_group.member_index) {
-            pending_sends.push(convert_msg(p.second));
-        } else {
-	  // free_message_buffers.push_back(std::move(p.second.message_buffer));
-        }
+        // if(p.second.sender_rank == old_group.member_index) {
+        //     pending_sends.push(convert_msg(p.second));
+        // } else {
+	//   free_message_buffers.push_back(std::move(p.second.message_buffer));
+        // }
     }
     old_group.locally_stable_messages.clear();
 
-    // Any messages that were being sent should be re-attempted.
-    if(old_group.current_send) {
-        pending_sends.push(convert_msg(*old_group.current_send));
-    }
-    while(!old_group.pending_sends.empty()) {
-        pending_sends.push(convert_msg(old_group.pending_sends.front()));
-        old_group.pending_sends.pop();
-    }
-    if(old_group.next_send) {
-        next_send = convert_msg(*old_group.next_send);
-    }
+    // // Any messages that were being sent should be re-attempted.
+    // if(old_group.current_send) {
+    //     pending_sends.push(convert_msg(*old_group.current_send));
+    // }
+    // while(!old_group.pending_sends.empty()) {
+    //     pending_sends.push(convert_msg(old_group.pending_sends.front()));
+    //     old_group.pending_sends.pop();
+    // }
+    // if(old_group.next_send) {
+    //     next_send = convert_msg(*old_group.next_send);
+    // }
 
     // If the old group was using persistence, we should transfer its state to the new group
     file_writer = std::move(old_group.file_writer);
@@ -249,7 +251,7 @@ std::function<void(persistence::message)> MulticastGroup<handlersType>::make_fil
             std::lock_guard<std::mutex> lock(msg_state_mtx);
             auto find_result = non_persistent_messages.find(sequence_number);
             assert(find_result != non_persistent_messages.end());
-            Message &m_msg = find_result->second;
+            // Message &m_msg = find_result->second;
             // free_message_buffers.push_back(std::move(m_msg.message_buffer));
             non_persistent_messages.erase(find_result);
             sst->persisted_num[member_index] = sequence_number;
@@ -260,7 +262,7 @@ std::function<void(persistence::message)> MulticastGroup<handlersType>::make_fil
 }
 
 template <typename dispatchersType>
-bool MulticastGroup<dispatchersType>::create_sst_multicast_groups() {
+bool MulticastGroup<dispatchersType>::create_sst_multicast_group() {
     // // rotated list of members - used for creating n internal RDMC groups
     // std::vector<uint32_t> rotated_members(num_members);
 
@@ -270,38 +272,40 @@ bool MulticastGroup<dispatchersType>::create_sst_multicast_groups() {
     }
     std::cout << std::endl;
 
-    auto sst_receive_handler = [this](uint32_t sender_rank, uint64_t index, char* data, size_t size) {
-            /* util::debug_log().log_event(std::stringstream() << "Locally received message from sender " << groupnum << ": index = " << (sst->nReceived[member_index][groupnum] + 1)); */
-            std::lock_guard<std::mutex> lock(msg_state_mtx);
-            // header *h = (header *)data;
+    auto sst_receive_handler = [this](uint32_t sender_rank, uint64_t index_ignored, volatile char* data, uint32_t size) {
+        // ignore index
+        /* util::debug_log().log_event(std::stringstream() << "Locally received message from sender " << groupnum << ": index = " << (sst->nReceived[member_index][groupnum] + 1)); */
+        std::lock_guard<std::mutex> lock(msg_state_mtx);
+        header *h = (header *)data;
+        sst->nReceived[member_index][sender_rank]++;
+        long long int index = sst->nReceived[member_index][sender_rank];
+        long long int sequence_number = index * num_members + sender_rank;
+
+        locally_stable_messages[sequence_number] = {(int)sender_rank, index, size, data};
+
+        // Add empty messages to locally_stable_messages for each turn that the sender is skipping.
+        for(unsigned int j = 0; j < h->pause_sending_turns; ++j) {
+            index++;
+            sequence_number += num_members;
             sst->nReceived[member_index][sender_rank]++;
-            long long int sequence_number = index * num_members + sender_rank;
+            locally_stable_messages[sequence_number] = {(int)sender_rank, index, 0, 0};
+        }
 
-	    locally_stable_messages[sequence_number] = {sender_rank, index, data, size};
-	    
-            // // Add empty messages to locally_stable_messages for each turn that the sender is skipping.
-            // for(unsigned int j = 0; j < h->pause_sending_turns; ++j) {
-            //     index++;
-            //     sequence_number += num_members;
-            //     sst->nReceived[member_index][sender_rank]++;
-            //     locally_stable_messages[sequence_number] = {sender_rank, index, 0, 0};
-            // }
-
-            // std::atomic_signal_fence(std::memory_order_acq_rel);
-            auto* min_ptr = std::min_element(&sst->nReceived[member_index][0],
-                                 &sst->nReceived[member_index][num_members]);
-            int min_index = std::distance(&sst->nReceived[member_index][0], min_ptr);
-            auto new_seq_num = (*min_ptr + 1) * num_members + min_index - 1;
-            if(new_seq_num > sst->seq_num[member_index]) {
-                /* util::debug_log().log_event(std::stringstream() << "Updating seq_num to "  << new_seq_num); */
-                sst->seq_num[member_index] = new_seq_num;
-                sst->put();
-            } else {
-                sst->put();
-            }
+        // std::atomic_signal_fence(std::memory_order_acq_rel);
+        auto* min_ptr = std::min_element(&sst->nReceived[member_index][0],
+                                         &sst->nReceived[member_index][num_members]);
+        int min_index = std::distance(&sst->nReceived[member_index][0], min_ptr);
+        auto new_seq_num = (*min_ptr + 1) * num_members + min_index - 1;
+        if(new_seq_num > sst->seq_num[member_index]) {
+            /* util::debug_log().log_event(std::stringstream() << "Updating seq_num to "  << new_seq_num); */
+            sst->seq_num[member_index] = new_seq_num;
+            sst->put();
+        } else {
+            sst->put();
+        }
     };
 
-    multicast_group = new multicast_group<1000> (members, members[member_index], window_size, sst_receive_handler);
+    multicast_group = new sst_multicast_group<1000> (members, members[member_index], window_size, sst_receive_handler);
     return true;
 
     // // create num_members groups one at a time
@@ -396,7 +400,7 @@ template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
     DERECHO_LOG(-1, -1, "deliver_message()");
     if(msg.size > 0) {
-        char* buf = msg.buf;
+        char* buf = (char*)msg.buf;
         header* h = (header*)(buf);
         // cooked send
         if(h->cooked_send) {
@@ -611,7 +615,7 @@ void MulticastGroup<dispatchersType>::wedge() {
     sst->predicates.remove(sender_pred_handle);
 
     for(int i = 0; i < num_members; ++i) {
-        rdmc::destroy_group(i + rdmc_group_num_offset);
+      // rdmc::destroy_group(i + rdmc_group_num_offset);
     }
 
     if(rpc_thread.joinable()) {
@@ -620,60 +624,60 @@ void MulticastGroup<dispatchersType>::wedge() {
     connections.destroy();
 
     sender_cv.notify_all();
-    if(sender_thread.joinable()) {
-        sender_thread.join();
-    }
+    // if(sender_thread.joinable()) {
+    //     sender_thread.join();
+    // }
 }
 
-template <typename dispatchersType>
-void MulticastGroup<dispatchersType>::send_loop() {
-    auto should_send = [&]() {
-		DERECHO_LOG(-1, -1, "should_send_start");
-        if(!rdmc_groups_created) {
-            return false;
-        }
-        if(pending_sends.empty()) {
-            return false;
-        }
-        Message &msg = pending_sends.front();
-        if(sst->nReceived[member_index][member_index] < msg.index - 1) {
-            return false;
-        }
+// template <typename dispatchersType>
+// void MulticastGroup<dispatchersType>::send_loop() {
+//     auto should_send = [&]() {
+// 		DERECHO_LOG(-1, -1, "should_send_start");
+//         if(!rdmc_groups_created) {
+//             return false;
+//         }
+//         if(pending_sends.empty()) {
+//             return false;
+//         }
+//         Message &msg = pending_sends.front();
+//         if(sst->nReceived[member_index][member_index] < msg.index - 1) {
+//             return false;
+//         }
 
-        for (int i = 0; i < num_members; ++i) {
-            if (sst->delivered_num[i] < (msg.index - window_size) * num_members + member_index
-                    || (file_writer && sst->persisted_num[i] < (msg.index - window_size) * num_members + member_index)) {
-                return false;
-            }
-        }
-		DERECHO_LOG(-1, -1, "should_send_end");
-        return true;
-    };
-    auto should_wake = [&]() { return thread_shutdown || should_send(); };
-    try {
-        std::unique_lock<std::mutex> lock(msg_state_mtx);
-        while(!thread_shutdown) {
-            sender_cv.wait(lock, should_wake);
-            if(!thread_shutdown) {
-                current_send = std::move(pending_sends.front());
-                DERECHO_LOG(-1, -1, "got_current_send");
-                /* util::debug_log().log_event(std::stringstream() << "Calling send on message " << current_send->index */
-                /*                                                 << " from sender " << current_send->sender_rank); */
-                // DERECHO_LOG(-1, -1, "did_log_event");
-                if(!rdmc::send(member_index + rdmc_group_num_offset,
-                               current_send->message_buffer.mr, 0,
-                               current_send->size)) {
-                    throw std::runtime_error("rdmc::send returned false");
-                }
-                DERECHO_LOG(-1, -1, "issued_rdmc_send");
-                pending_sends.pop();
-            }
-        }
-        std::cout << "DerechoGroup send thread shutting down" << std::endl;
-    } catch(const std::exception& e) {
-        std::cout << "DerechoGroup send thread had an exception: " << e.what() << std::endl;
-    }
-}
+//         for (int i = 0; i < num_members; ++i) {
+//             if (sst->delivered_num[i] < (msg.index - window_size) * num_members + member_index
+//                     || (file_writer && sst->persisted_num[i] < (msg.index - window_size) * num_members + member_index)) {
+//                 return false;
+//             }
+//         }
+// 		DERECHO_LOG(-1, -1, "should_send_end");
+//         return true;
+//     };
+//     auto should_wake = [&]() { return thread_shutdown || should_send(); };
+//     try {
+//         std::unique_lock<std::mutex> lock(msg_state_mtx);
+//         while(!thread_shutdown) {
+//             sender_cv.wait(lock, should_wake);
+//             if(!thread_shutdown) {
+//                 current_send = std::move(pending_sends.front());
+//                 DERECHO_LOG(-1, -1, "got_current_send");
+//                 /* util::debug_log().log_event(std::stringstream() << "Calling send on message " << current_send->index */
+//                 /*                                                 << " from sender " << current_send->sender_rank); */
+//                 // DERECHO_LOG(-1, -1, "did_log_event");
+//                 if(!rdmc::send(member_index + rdmc_group_num_offset,
+//                                current_send->message_buffer.mr, 0,
+//                                current_send->size)) {
+//                     throw std::runtime_error("rdmc::send returned false");
+//                 }
+//                 DERECHO_LOG(-1, -1, "issued_rdmc_send");
+//                 pending_sends.pop();
+//             }
+//         }
+//         std::cout << "DerechoGroup send thread shutting down" << std::endl;
+//     } catch(const std::exception& e) {
+//         std::cout << "DerechoGroup send thread had an exception: " << e.what() << std::endl;
+//     }
+// }
 
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::check_failures_loop() {
@@ -703,7 +707,7 @@ char* MulticastGroup<dispatchersType>::get_position(
     long long unsigned int payload_size,
     int pause_sending_turns, bool cooked_send) {
     // if rdmc groups were not created because of failures, return NULL
-    if(!rdmc_groups_created) {
+    if(!sst_multicast_group_created) {
         return NULL;
     }
     long long unsigned int msg_size = payload_size + sizeof(header);
@@ -729,22 +733,25 @@ char* MulticastGroup<dispatchersType>::get_position(
     // if(free_message_buffers.empty()) return nullptr;
 
     // Create new Message
-    Message msg;
-    msg.sender_rank = member_index;
-    msg.index = future_message_index;
-    msg.size = msg_size;
+    // Message msg;
+    // msg.sender_rank = member_index;
+    // msg.index = future_message_index;
+    // msg.size = msg_size;
     // msg.message_buffer = std::move(free_message_buffers.back());
     // free_message_buffers.pop_back();
 
     // Fill header
-    char* buf = msg.message_buffer.buffer.get();
+    char* buf = (char*) multicast_group->get_buffer(msg_size);
+    if (!buf) {
+      return nullptr;
+    }
     ((header*)buf)->header_size = sizeof(header);
     ((header*)buf)->pause_sending_turns = pause_sending_turns;
     ((header*)buf)->cooked_send = cooked_send;
 
-    next_send = std::move(msg);
-    future_message_index += pause_sending_turns + 1;
-
+    // next_send = std::move(msg);
+    // future_message_index += pause_sending_turns + 1;
+    
     return buf + sizeof(header);
 }
 

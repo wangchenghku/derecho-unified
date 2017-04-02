@@ -2,7 +2,7 @@
 #include <fstream>
 #include <sstream>
 
-#include "multicast.h"
+#include "sst/sst_multicast.h"
 
 using namespace std;
 using namespace sst;
@@ -39,7 +39,7 @@ int main() {
 
     uint num_finished = 0;
     struct timespec recv_time, send_time;
-    group<max_msg_size> g(
+    sst_multicast_group<max_msg_size> g(
         members, node_id, window_size,
         [&recv_times, &recv_time, &num_finished, &num_nodes, &num_messages](
             uint32_t sender_rank, uint64_t index, volatile char* msg,

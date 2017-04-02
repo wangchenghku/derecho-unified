@@ -64,14 +64,14 @@ Group<dispatcherType>::Group(
         persist_object(derecho_params, params_file_name);
     }
 
-    std::vector<MessageBuffer> message_buffers;
-    auto max_msg_size = MulticastGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
-    while(message_buffers.size() < derecho_params.window_size * curr_view->members.size()) {
-        message_buffers.emplace_back(max_msg_size);
-    }
+    // std::vector<MessageBuffer> message_buffers;
+    // auto max_msg_size = MulticastGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
+    // while(message_buffers.size() < derecho_params.window_size * curr_view->members.size()) {
+    //     message_buffers.emplace_back(max_msg_size);
+    // }
 
     log_event("Initializing SST and RDMC for the first time.");
-    setup_derecho(message_buffers, callbacks, derecho_params);
+    setup_derecho(callbacks, derecho_params);
     curr_view->gmsSST->put();
     curr_view->gmsSST->sync_with_members();
     log_event("Done setting up initial SST and RDMC");
@@ -127,12 +127,12 @@ Group<dispatcherType>::Group(const node_id_t my_id,
     }
     log_event("Initializing SST and RDMC for the first time.");
 
-    std::vector<MessageBuffer> message_buffers;
-    auto max_msg_size = MulticastGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
-    while(message_buffers.size() < derecho_params.window_size * curr_view->members.size()) {
-        message_buffers.emplace_back(max_msg_size);
-    }
-    setup_derecho(message_buffers, callbacks, derecho_params);
+    // std::vector<MessageBuffer> message_buffers;
+    // auto max_msg_size = MulticastGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
+    // while(message_buffers.size() < derecho_params.window_size * curr_view->members.size()) {
+    //     message_buffers.emplace_back(max_msg_size);
+    // }
+    setup_derecho(callbacks, derecho_params);
     curr_view->gmsSST->vid[curr_view->my_rank] = curr_view->vid;
     curr_view->gmsSST->put();
     curr_view->gmsSST->sync_with_members();
@@ -216,15 +216,14 @@ Group<dispatcherType>::Group(const std::string& recovery_filename,
     persist_object(*curr_view, view_file_name);
     persist_object(derecho_params, params_file_name);
 
-    std::vector<MessageBuffer> message_buffers;
-    auto max_msg_size = MulticastGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
-    while(message_buffers.size() < derecho_params.window_size * curr_view->members.size()) {
-        message_buffers.emplace_back(max_msg_size);
-    }
+    // std::vector<MessageBuffer> message_buffers;
+    // auto max_msg_size = MulticastGroup<dispatcherType>::compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size);
+    // while(message_buffers.size() < derecho_params.window_size * curr_view->members.size()) {
+    //     message_buffers.emplace_back(max_msg_size);
+    // }
 
     log_event("Initializing SST and RDMC for the first time.");
-    setup_derecho(message_buffers,
-                  callbacks,
+    setup_derecho(callbacks,
                   derecho_params);
     curr_view->gmsSST->vid[curr_view->my_rank] = curr_view->vid;
     curr_view->gmsSST->put();
@@ -654,8 +653,7 @@ Group<dispatcherType>::~Group() {
 }
 
 template <typename dispatcherType>
-void Group<dispatcherType>::setup_derecho(std::vector<MessageBuffer>& message_buffers,
-                                                 CallbackSet callbacks,
+void Group<dispatcherType>::setup_derecho(CallbackSet callbacks,
                                                  const DerechoParams& derecho_params) {
     curr_view->gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
         curr_view->members, curr_view->members[curr_view->my_rank],
@@ -663,7 +661,7 @@ void Group<dispatcherType>::setup_derecho(std::vector<MessageBuffer>& message_bu
 
     curr_view->derecho_group = std::make_unique<MulticastGroup<dispatcherType>>(
         curr_view->members, curr_view->members[curr_view->my_rank],
-        curr_view->gmsSST, message_buffers, std::move(dispatchers), callbacks, derecho_params,
+        curr_view->gmsSST, std::move(dispatchers), callbacks, derecho_params,
         get_member_ips_map(curr_view->members, curr_view->member_ips, curr_view->failed),
         curr_view->failed);
 }

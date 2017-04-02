@@ -155,8 +155,7 @@ private:
 
     /** Creates the SST and derecho_group for the current view, using the current view's member list.
      * The parameters are all the possible parameters for constructing derecho_group. */
-    void setup_derecho(std::vector<MessageBuffer>& message_buffers,
-                       CallbackSet callbacks,
+    void setup_derecho(CallbackSet callbacks,
                        const DerechoParams& derecho_params);
     /** Sets up the SST and derecho_group for a new view, based on the settings in the current view
      * (and copying over the SST data from the current view). */
