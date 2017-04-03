@@ -66,8 +66,8 @@ MulticastGroup<dispatchersType>::MulticastGroup(
         : members(_members),
           num_members(members.size()),
           member_index(index_of(members, my_node_id)),
-          block_size(derecho_params.block_size),
-          max_msg_size(compute_max_msg_size(derecho_params.max_payload_size, derecho_params.block_size)),
+          // block_size(derecho_params.block_size),
+          max_msg_size(compute_max_msg_size(derecho_params.max_payload_size)),
           window_size(derecho_params.window_size),
           callbacks(callbacks),
           dispatchers(std::move(_dispatchers)),
@@ -125,7 +125,7 @@ MulticastGroup<dispatchersType>::MulticastGroup(
         : members(_members),
           num_members(members.size()),
           member_index(index_of(members, my_node_id)),
-          block_size(old_group.block_size),
+          // block_size(old_group.block_size),
           max_msg_size(old_group.max_msg_size),
           window_size(old_group.window_size),
           callbacks(old_group.callbacks),
@@ -273,6 +273,7 @@ bool MulticastGroup<dispatchersType>::create_sst_multicast_group() {
     std::cout << std::endl;
 
     auto sst_receive_handler = [this](uint32_t sender_rank, uint64_t index_ignored, volatile char* data, uint32_t size) {
+        DERECHO_LOG(sender_rank, index_ignored, "received_message");
         // ignore index
         /* util::debug_log().log_event(std::stringstream() << "Locally received message from sender " << groupnum << ": index = " << (sst->nReceived[member_index][groupnum] + 1)); */
         std::lock_guard<std::mutex> lock(msg_state_mtx);
@@ -594,12 +595,13 @@ MulticastGroup<dispatchersType>::~MulticastGroup() {
 
 template <typename dispatchersType>
 long long unsigned int MulticastGroup<dispatchersType>::compute_max_msg_size(
-    const long long unsigned int max_payload_size,
-    const long long unsigned int block_size) {
+    const long long unsigned int max_payload_size
+    // const long long unsigned int block_size
+    ) {
     auto max_msg_size = max_payload_size + sizeof(header);
-    if(max_msg_size % block_size != 0) {
-        max_msg_size = (max_msg_size / block_size + 1) * block_size;
-    }
+    // if(max_msg_size % block_size != 0) {
+    //     max_msg_size = (max_msg_size / block_size + 1) * block_size;
+    // }
     return max_msg_size;
 }
 
@@ -683,7 +685,7 @@ template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::check_failures_loop() {
     while(!thread_shutdown) {
         std::this_thread::sleep_for(milliseconds(sender_timeout));
-        if(sst) sst->put();
+        if(sst) sst->put_with_completion();
     }
 }
 
@@ -693,6 +695,7 @@ bool MulticastGroup<dispatchersType>::send() {
         return false;
     }
     multicast_group->send();
+    DERECHO_LOG(-1, -1, "user_send_finished");
     return true;
     // std::lock_guard<std::mutex> lock(msg_state_mtx);
     // assert(next_send);

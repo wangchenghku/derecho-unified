@@ -199,7 +199,7 @@ private:
     const int member_index;
     /** Block size used for message transfer.
      * we keep it simple; one block size for messages from all senders */
-    const long long unsigned int block_size;
+    // const long long unsigned int block_size;
     // maximum size of any message that can be sent
     const long long unsigned int max_msg_size;
     /** Send algorithm for constructing a multicast from point-to-point unicast.
@@ -349,8 +349,9 @@ public:
     /** Debugging function; prints the current state of the SST to stdout. */
     void debug_print();
     static long long unsigned int compute_max_msg_size(
-        const long long unsigned int max_payload_size,
-        const long long unsigned int block_size);
+        const long long unsigned int max_payload_size
+        // const long long unsigned int block_size
+        );
 };
 }  // namespace derecho
 

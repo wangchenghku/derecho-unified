@@ -58,6 +58,7 @@ int main(int argc, char *argv[]) {
 
         long long unsigned int max_msg_size = msg_size;
         long long unsigned int block_size = msg_size * 2;
+	unsigned int window_size = 1000;
 
         int num_messages = 1000;
 
@@ -75,7 +76,7 @@ int main(int argc, char *argv[]) {
         std::this_thread::sleep_for(std::chrono::milliseconds{10 * node_id});
 
         derecho::CallbackSet callbacks{stability_callback, nullptr};
-        derecho::DerechoParams param_object{max_msg_size, block_size};
+        derecho::DerechoParams param_object{max_msg_size, block_size, std::string(), window_size};
         rpc::Dispatcher<> empty_dispatcher(node_id);
         std::unique_ptr<derecho::Group<rpc::Dispatcher<>>> managed_group;
 

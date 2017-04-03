@@ -78,18 +78,21 @@ class sst_multicast_group {
 
     void register_predicates() {
         auto receiver_pred = [this](const multicastSST<max_msg_size>& sst) {
-	    for(uint i = 0; i < window_size / 2; ++i) {
-                for(uint j = 0; j < num_members; ++j) {
-                    uint32_t slot = sst.num_received[my_rank][j] % window_size;
-                    if(sst.slots[j][slot].next_seq ==
-                       (sst.num_received[my_rank][j]) / window_size + 1) {
-		      return true;
-                    }
-                }
-            }
-	  return false;
+	  //   for(uint i = 0; i < window_size / 2; ++i) {
+          //       for(uint j = 0; j < num_members; ++j) {
+          //           uint32_t slot = sst.num_received[my_rank][j] % window_size;
+          //           if(sst.slots[j][slot].next_seq ==
+          //              (sst.num_received[my_rank][j]) / window_size + 1) {
+	  // 	      return true;
+          //           }
+          //       }
+          //   }
+	  // return false;
+
+	  return true;
         };
         auto receiver_trig = [this](multicastSST<max_msg_size>& sst) {
+            bool sst_changed = false;
             for(uint i = 0; i < window_size / 2; ++i) {
                 for(uint j = 0; j < num_members; ++j) {
                     uint32_t slot = sst.num_received[my_rank][j] % window_size;
@@ -99,20 +102,24 @@ class sst_multicast_group {
                                                 sst.slots[j][slot].buf,
                                                 sst.slots[j][slot].size);
                         sst.num_received[my_rank][j]++;
+                        sst_changed = true;
                     }
                 }
             }
+            if(!sst_changed) {
+                return;
+            }
             num_puts++;
-            if(num_puts <= window_size/2) {
+            if(num_puts <= window_size / 2) {
                 sst.put((char*)std::addressof(sst.num_received[0][0]) -
                             sst.getBaseAddress(),
                         sizeof(sst.num_received[0][0]) * num_members);
             } else {
                 sst.put_with_completion((char*)std::addressof(sst.num_received[0][0]) -
-                            sst.getBaseAddress(),
-                        sizeof(sst.num_received[0][0]) * num_members);
-		num_puts = 0;
-	    }
+                                            sst.getBaseAddress(),
+                                        sizeof(sst.num_received[0][0]) * num_members);
+                num_puts = 0;
+            }
         };
         sst.predicates.insert(receiver_pred, receiver_trig,
                               sst::PredicateType::RECURRENT);
