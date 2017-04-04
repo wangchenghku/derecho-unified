@@ -110,7 +110,7 @@ class sst_multicast_group {
                 return;
             }
             num_puts++;
-            if(num_puts <= window_size / 2) {
+            if(num_puts <= 500) {
                 sst.put((char*)std::addressof(sst.num_received[0][0]) -
                             sst.getBaseAddress(),
                         sizeof(sst.num_received[0][0]) * num_members);
@@ -171,7 +171,7 @@ public:
         num_sent++;
         sst.slots[my_rank][slot].next_seq++;
         num_puts++;
-        if(num_puts <= window_size/2) {
+        if(num_puts <= 500) {
             sst.put(
                 (char*)std::addressof(sst.slots[0][slot]) -
                     sst.getBaseAddress(),

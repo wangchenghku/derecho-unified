@@ -58,7 +58,7 @@ int main(int argc, char *argv[]) {
 
         long long unsigned int max_msg_size = msg_size;
         long long unsigned int block_size = msg_size * 2;
-	unsigned int window_size = 1000;
+	unsigned int window_size = 3;
 
         int num_messages = 1000;
 

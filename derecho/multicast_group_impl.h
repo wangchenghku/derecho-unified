@@ -727,6 +727,7 @@ char* MulticastGroup<dispatchersType>::get_position(
     for(int i = 0; i < num_members; ++i) {
         if(sst->delivered_num[i] <
            (future_message_index - window_size) * num_members + member_index) {
+            // std::cout << "Returning nullptr" << std::endl;
             return nullptr;
         }
     }
@@ -753,7 +754,7 @@ char* MulticastGroup<dispatchersType>::get_position(
     ((header*)buf)->cooked_send = cooked_send;
 
     // next_send = std::move(msg);
-    // future_message_index += pause_sending_turns + 1;
+    future_message_index += pause_sending_turns + 1;
     
     return buf + sizeof(header);
 }

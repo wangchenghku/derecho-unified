@@ -64,18 +64,18 @@ void SST<DerivedSST>::detect() {
         std::unique_lock<std::mutex> lock(thread_start_mutex);
         thread_start_cv.wait(lock, [this]() { return thread_start; });
     }
-    struct timespec last_time, cur_time;
-    clock_gettime(CLOCK_REALTIME, &last_time);
+    // struct timespec last_time, cur_time;
+    // clock_gettime(CLOCK_REALTIME, &last_time);
 
     while(!thread_shutdown) {
-      bool predicate_fired = false;
+      // bool predicate_fired = false;
         // Take the predicate lock before reading the predicate lists
         std::unique_lock<std::mutex> predicates_lock(predicates.predicate_mutex);
 
         // one time predicates need to be evaluated only until they become true
         for(auto& pred : predicates.one_time_predicates) {
             if(pred != nullptr && (pred->first(*derived_this) == true)) {
-                predicate_fired = true;
+                // predicate_fired = true;
                 // Copy the trigger pointer locally, so it can continue running without
                 // segfaulting even if this predicate gets deleted when we unlock predicates_lock
                 std::shared_ptr<typename Predicates<DerivedSST>::trig> trigger(pred->second);
@@ -90,7 +90,7 @@ void SST<DerivedSST>::detect() {
         // recurrent predicates are evaluated each time they are found to be true
         for(auto& pred : predicates.recurrent_predicates) {
             if(pred != nullptr && (pred->first(*derived_this) == true)) {
-                predicate_fired = true;
+                // predicate_fired = true;
                 std::shared_ptr<typename Predicates<DerivedSST>::trig> trigger(pred->second);
                 predicates_lock.unlock();
                 (*trigger)(*derived_this);
@@ -107,7 +107,7 @@ void SST<DerivedSST>::detect() {
                 //*pred_state_it is the previous state of the predicate at *pred_it
                 bool curr_pred_state = (*pred_it)->first(*derived_this);
                 if(curr_pred_state == true && *pred_state_it == false) {
-                    predicate_fired = true;
+                    // predicate_fired = true;
                     std::shared_ptr<typename Predicates<DerivedSST>::trig> trigger(
                         (*pred_it)->second);
                     predicates_lock.unlock();
@@ -121,20 +121,20 @@ void SST<DerivedSST>::detect() {
             }
         }
 
-        if(predicate_fired) {
-            // update last time
-            clock_gettime(CLOCK_REALTIME, &last_time);
-        } else {
-            clock_gettime(CLOCK_REALTIME, &cur_time);
-            // check if the system has been inactive for enough time to induce sleep
-            double time_elapsed_in_ms = (cur_time.tv_sec - last_time.tv_sec) * 1e3 + (cur_time.tv_nsec - last_time.tv_nsec) / 1e6;
-            if(time_elapsed_in_ms > 1) {
-                predicates_lock.unlock();
-                using namespace std::chrono_literals;
-                std::this_thread::sleep_for(1ms);
-		predicates_lock.lock();
-            }
-        }
+        // if(predicate_fired) {
+        //     // update last time
+        //     clock_gettime(CLOCK_REALTIME, &last_time);
+        // } else {
+        //     clock_gettime(CLOCK_REALTIME, &cur_time);
+        //     // check if the system has been inactive for enough time to induce sleep
+        //     double time_elapsed_in_ms = (cur_time.tv_sec - last_time.tv_sec) * 1e3 + (cur_time.tv_nsec - last_time.tv_nsec) / 1e6;
+        //     if(time_elapsed_in_ms > 1) {
+        //         predicates_lock.unlock();
+        //         using namespace std::chrono_literals;
+        //         std::this_thread::sleep_for(1ms);
+	// 	predicates_lock.lock();
+        //     }
+        // }
         //Still to do: Clean up deleted predicates
     }
 }
