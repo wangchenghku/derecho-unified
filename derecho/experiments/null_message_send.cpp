@@ -55,6 +55,7 @@ int main(int argc, char *argv[]) {
         int sender_rank, long long int index, char *buf,
         long long int msg_size) {
         cout << "Message size is: " << msg_size << endl;
+	cout << "sender_rank = " << sender_rank << ", index = " << index << endl;
         if(index == num_messages - 1 && sender_rank == (int)num_nodes - 1) {
             done = true;
         }
@@ -76,11 +77,9 @@ int main(int argc, char *argv[]) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    // char *buf = managed_group->get_sendbuffer_ptr(0, 9, false, false);
-    // while(!buf) {
-    //     buf = managed_group->get_sendbuffer_ptr(0, 9, false, false);
-    // }
-    // managed_group->send();
+    int my_rank = 0;
+    auto group_members = managed_group->get_members();
+    while(group_members[my_rank] != node_id) my_rank++;
 
     for(int i = 0; i < num_messages; ++i) {
         char *buf = managed_group->get_sendbuffer_ptr(0, 0, false, true);
@@ -89,7 +88,7 @@ int main(int argc, char *argv[]) {
         }
         managed_group->send();
     }
-
+    
     while(!done) {
     }
     exit(0);

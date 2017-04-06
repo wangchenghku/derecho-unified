@@ -67,6 +67,7 @@ int main(int argc, char *argv[]) {
             int sender_rank, long long int index, char *buf,
             long long int msg_size) {
             // cout << buf << endl;
+            cout << "Delivered a message" << endl;
             DERECHO_LOG(sender_rank, index, "complete_send");
             end_times[sender_rank].push_back(get_time());
             if(index == num_messages - 1 && sender_rank == (int)num_nodes - 1) {
@@ -117,7 +118,7 @@ int main(int argc, char *argv[]) {
         cout << "Finished constructing/joining ManagedGroup" << endl;
 
         if(node_id == 0) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
         }
 
         for(int i = 0; i < num_messages; ++i) {
@@ -134,7 +135,7 @@ int main(int argc, char *argv[]) {
             managed_group->send();
 
             if(node_id == 0) {
-                std::this_thread::sleep_for(std::chrono::microseconds(1000));
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
             }
         }
         while(!done) {
@@ -142,7 +143,7 @@ int main(int argc, char *argv[]) {
 
         managed_group->barrier_sync();
 
-        // flush_events();
+        flush_events();
         // for(int i = 100; i < num_messages - 100; i+= 5){
         // 	printf("%5.3f\n", (end_times[my_rank][i] - start_times[i]) * 1e-3);
         // }

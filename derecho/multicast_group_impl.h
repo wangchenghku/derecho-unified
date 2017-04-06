@@ -460,6 +460,8 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
                 DERECHO_LOG(-1, -1, "end_stability_callback");
             } else {
                 std::cout << "A null message was sent" << std::endl;
+                std::cout << "sender_rank = " << msg.sender_rank
+                          << ", index = " << msg.index << std::endl;
             }
         }
         if(file_writer) {
@@ -479,7 +481,8 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
         }
     }
     else {
-        std::cout << "A null message was sent" << std::endl;
+        // std::cout << "A use of pause sending turns" << std::endl;
+        // std::cout << "A null message was sent" << std::endl;
     }
 }
 
@@ -546,13 +549,22 @@ void MulticastGroup<dispatchersType>::register_predicates() {
             }
         }
 
-		bool update_sst = false;
+        bool update_sst = false;
         while(!locally_stable_messages.empty()) {
             long long int least_undelivered_seq_num =
                 locally_stable_messages.begin()->first;
-            if(least_undelivered_seq_num <= min_stable_num) {
+            if(least_undelivered_seq_num <= min_stable_num && !thread_shutdown && sst_multicast_group_created) {
                 /* util::debug_log().log_event(std::stringstream() << "Can deliver a locally stable message: min_stable_num=" << min_stable_num << " and least_undelivered_seq_num=" << least_undelivered_seq_num); */
                 Message& msg = locally_stable_messages.begin()->second;
+                // if(msg.sender_rank == member_index) {
+                //     if(future_message_index - msg.index <= 1) {
+                //         char* buf = get_position(0, 0, false, true, true);
+                //         while(!buf) {
+		// 	  buf = get_position(0, 0, false, true, true);
+                //         }
+		// 	send();
+                //     }
+                // }
                 deliver_message(msg);
                 DERECHO_LOG(-1, -1, "deliver_message() done");
                 sst.delivered_num[member_index] = least_undelivered_seq_num;
@@ -560,15 +572,15 @@ void MulticastGroup<dispatchersType>::register_predicates() {
                 //                delivered_num), sizeof
                 //                (least_undelivered_seq_num));
                 locally_stable_messages.erase(locally_stable_messages.begin());
-				DERECHO_LOG(-1, -1, "message_erase_done");
-				update_sst = true;
+                DERECHO_LOG(-1, -1, "message_erase_done");
+                update_sst = true;
             } else {
-				break;
-			}
+                break;
+            }
         }
-		if(update_sst) {
-			sst.put();
-		}
+        if(update_sst) {
+            sst.put();
+        }
     };
     delivery_pred_handle = sst->predicates.insert(delivery_pred, delivery_trig, sst::PredicateType::RECURRENT);
 
@@ -715,7 +727,13 @@ bool MulticastGroup<dispatchersType>::send() {
 template <typename dispatchersType>
 char* MulticastGroup<dispatchersType>::get_position(
     long long unsigned int payload_size,
-    int pause_sending_turns, bool cooked_send, bool null_send) {
+    int pause_sending_turns, bool cooked_send, bool null_send,
+    bool locked_already) {
+    std::unique_lock<std::mutex> lock(msg_state_mtx, std::defer_lock);
+    if(!locked_already) {
+        lock.lock();
+    }
+
     // if rdmc groups were not created because of failures, return NULL
     if(!sst_multicast_group_created) {
         return NULL;
@@ -737,12 +755,11 @@ char* MulticastGroup<dispatchersType>::get_position(
     for(int i = 0; i < num_members; ++i) {
         if(sst->delivered_num[i] <
            (future_message_index - window_size) * num_members + member_index) {
-            // std::cout << "Returning nullptr" << std::endl;
+            std::cout << "Returning nullptr" << std::endl;
             return nullptr;
         }
     }
 
-    std::unique_lock<std::mutex> lock(msg_state_mtx);
     if(thread_shutdown) return nullptr;
     // if(free_message_buffers.empty()) return nullptr;
 
@@ -757,6 +774,7 @@ char* MulticastGroup<dispatchersType>::get_position(
     // Fill header
     char* buf = (char*) multicast_group->get_buffer(msg_size);
     if (!buf) {
+      std::cout << "SST multicast returned false" << std::endl;
       return nullptr;
     }
     ((header*)buf)->header_size = sizeof(header);
