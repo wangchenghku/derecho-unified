@@ -927,9 +927,9 @@ void Group<dispatcherType>::leave() {
 }
 
 template <typename dispatcherType>
-char* Group<dispatcherType>::get_sendbuffer_ptr(unsigned long long int payload_size, int pause_sending_turns, bool cooked_send) {
+char* Group<dispatcherType>::get_sendbuffer_ptr(unsigned long long int payload_size, int pause_sending_turns, bool cooked_send, bool null_send) {
     lock_guard_t lock(view_mutex);
-    return curr_view->derecho_group->get_position(payload_size, pause_sending_turns, cooked_send);
+    return curr_view->derecho_group->get_position(payload_size, pause_sending_turns, cooked_send, null_send);
 }
 
 template <typename dispatcherType>

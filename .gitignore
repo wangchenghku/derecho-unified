@@ -41,3 +41,4 @@ CMakeFiles
 /derecho/experiments/latency_test
 /derecho/experiments/subgroup_test
 /derecho/experiments/typed_subgroup_test
+/derecho/experiments/null_message_send

@@ -66,8 +66,9 @@ int main(int argc, char *argv[]) {
         auto stability_callback = [&num_messages, &done, &num_nodes](
             int sender_rank, long long int index, char *buf,
             long long int msg_size) {
-			DERECHO_LOG(sender_rank, index, "complete_send");
-			end_times[sender_rank].push_back(get_time());
+            // cout << buf << endl;
+            DERECHO_LOG(sender_rank, index, "complete_send");
+            end_times[sender_rank].push_back(get_time());
             if(index == num_messages - 1 && sender_rank == (int)num_nodes - 1) {
                 done = true;
             }
@@ -124,9 +125,10 @@ int main(int argc, char *argv[]) {
             while(!buf) {
                 buf = managed_group->get_sendbuffer_ptr(msg_size);
             }
-            for(unsigned int j = 0; j < msg_size; ++j) {
+            for(unsigned int j = 0; j < msg_size-1; ++j) {
                 buf[j] = 'a' + (i % 26);
             }
+	    buf[msg_size-1] = 0;
             start_times.push_back(get_time());
             DERECHO_LOG(my_rank, i, "start_send");
             managed_group->send();
@@ -140,7 +142,7 @@ int main(int argc, char *argv[]) {
 
         managed_group->barrier_sync();
 
-        flush_events();
+        // flush_events();
         // for(int i = 100; i < num_messages - 100; i+= 5){
         // 	printf("%5.3f\n", (end_times[my_rank][i] - start_times[i]) * 1e-3);
         // }

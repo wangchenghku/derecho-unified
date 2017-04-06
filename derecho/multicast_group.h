@@ -323,7 +323,7 @@ public:
     void deliver_messages_upto(const std::vector<long long int>& max_indices_for_senders);
     /** get a pointer into the buffer, to write data into it before sending */
     char* get_position(long long unsigned int payload_size,
-                       int pause_sending_turns = 0, bool cooked_send = false);
+                       int pause_sending_turns = 0, bool cooked_send = false, bool null_send = false);
     /** Note that get_position and send are called one after the another - regexp for using the two is (get_position.send)*
      * This still allows making multiple send calls without acknowledgement; at a single point in time, however,
      * there is only one message per sender in the RDMC pipeline */

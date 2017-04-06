@@ -453,10 +453,14 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
         }
         // raw send
         else {
-            DERECHO_LOG(-1, -1, "start_stability_callback");
-            callbacks.global_stability_callback(msg.sender_rank, msg.index,
-                                                buf + h->header_size, msg.size);
-            DERECHO_LOG(-1, -1, "end_stability_callback");
+            if(msg.size - h->header_size) {
+                DERECHO_LOG(-1, -1, "start_stability_callback");
+                callbacks.global_stability_callback(msg.sender_rank, msg.index,
+                                                    buf + h->header_size, msg.size - h->header_size);
+                DERECHO_LOG(-1, -1, "end_stability_callback");
+            } else {
+                std::cout << "A null message was sent" << std::endl;
+            }
         }
         if(file_writer) {
             // msg.sender_rank is the 0-indexed rank within this group, but
@@ -473,6 +477,9 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
             // free_message_buffers.push_back(std::move(msg.message_buffer));
             // DERECHO_LOG(-1, -1, "end_free_buffer");
         }
+    }
+    else {
+        std::cout << "A null message was sent" << std::endl;
     }
 }
 
@@ -708,7 +715,7 @@ bool MulticastGroup<dispatchersType>::send() {
 template <typename dispatchersType>
 char* MulticastGroup<dispatchersType>::get_position(
     long long unsigned int payload_size,
-    int pause_sending_turns, bool cooked_send) {
+    int pause_sending_turns, bool cooked_send, bool null_send) {
     // if rdmc groups were not created because of failures, return NULL
     if(!sst_multicast_group_created) {
         return NULL;
@@ -717,6 +724,9 @@ char* MulticastGroup<dispatchersType>::get_position(
     // payload_size is 0 when max_msg_size is desired, useful for ordered send/query
     if(!payload_size) {
         msg_size = max_msg_size;
+    }
+    if (null_send) {
+      msg_size = sizeof(header);
     }
     if(msg_size > max_msg_size) {
         std::cout << "Can't send messages of size larger than the maximum message "
