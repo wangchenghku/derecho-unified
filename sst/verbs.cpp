@@ -491,7 +491,7 @@ void resources_create() {
     // if there isn't any IB device in host
     check_for_error(num_devices, "NO RDMA device present");
     // search for the specific device we want to work with
-    for(i = 0; i < num_devices; i++) {
+    for(i = 1; i < num_devices; i++) {
         if(!dev_name) {
             dev_name = strdup(ibv_get_device_name(dev_list[i]));
         }

@@ -270,7 +270,7 @@ private:
     std::shared_ptr<DerechoSST> sst;
 
     /** The SST for multicasts **/
-    sst_multicast_group<1000>* multicast_group;
+    sst_multicast_group<10100>* multicast_group;
 
     using pred_handle = typename sst::Predicates<DerechoSST>::pred_handle;
     pred_handle stability_pred_handle;

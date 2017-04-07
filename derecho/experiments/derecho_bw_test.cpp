@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
 
     map<uint32_t, std::string> node_addresses;
 
-	rdmc::query_addresses(node_addresses, node_rank);
+    rdmc::query_addresses(node_addresses, node_rank);
     num_nodes = node_addresses.size();
 
     vector<uint32_t> members(num_nodes);
@@ -55,8 +55,8 @@ int main(int argc, char *argv[]) {
         num_last_received = 0u
     ](int sender_id, long long int index, char *buf,
       long long int msg_size) mutable {
-        cout << "In stability callback; sender = " << sender_id
-             << ", index = " << index << endl;
+        // cout << "In stability callback; sender = " << sender_id
+        //      << ", index = " << index << endl;
         if(num_senders_selector == 0) {
             if(index == num_messages - 1 && sender_id == (int)num_nodes - 1) {
                 done = true;
@@ -95,20 +95,20 @@ int main(int argc, char *argv[]) {
     while(managed_group->get_members().size() < num_nodes) {
     }
     auto members_order = managed_group->get_members();
-    cout << "The order of members is :" << endl;
-    for(auto id : members_order) {
-        cout << id << " ";
-    }
-    cout << endl;
+    // cout << "The order of members is :" << endl;
+    // for(auto id : members_order) {
+    //     cout << id << " ";
+    // }
+    // cout << endl;
 
     auto send_all = [&]() {
         for(int i = 0; i < num_messages; ++i) {
-            cout << "Asking for a buffer" << endl;
+            // cout << "Asking for a buffer" << endl;
             char *buf = managed_group->get_sendbuffer_ptr(max_msg_size);
             while(!buf) {
                 buf = managed_group->get_sendbuffer_ptr(max_msg_size);
             }
-            cout << "Obtained a buffer, sending" << endl;	    
+            // cout << "Obtained a buffer, sending" << endl;	    
             managed_group->send();
         }
     };
@@ -120,6 +120,8 @@ int main(int argc, char *argv[]) {
         managed_group->send();
     };
 
+    managed_group->barrier_sync();
+    
     struct timespec start_time;
     // start timer
     clock_gettime(CLOCK_REALTIME, &start_time);
@@ -162,10 +164,10 @@ int main(int argc, char *argv[]) {
                 "data_derecho_bw");
 
     managed_group->barrier_sync();
-    std::string log_filename =
-        (std::stringstream() << "events_node" << node_rank << ".csv").str();
-    std::ofstream logfile(log_filename);
-    managed_group->print_log(logfile);
+    // std::string log_filename =
+    //     (std::stringstream() << "events_node" << node_rank << ".csv").str();
+    // std::ofstream logfile(log_filename);
+    // managed_group->print_log(logfile);
     managed_group->leave();
     cout << "Finished destroying managed_group" << endl;
 }
