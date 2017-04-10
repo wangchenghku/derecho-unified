@@ -755,7 +755,7 @@ char* MulticastGroup<dispatchersType>::get_position(
     for(int i = 0; i < num_members; ++i) {
         if(sst->delivered_num[i] <
            (future_message_index - window_size) * num_members + member_index) {
-            std::cout << "Returning nullptr" << std::endl;
+            // std::cout << "Returning nullptr" << std::endl;
             return nullptr;
         }
     }
@@ -774,7 +774,7 @@ char* MulticastGroup<dispatchersType>::get_position(
     // Fill header
     char* buf = (char*) multicast_group->get_buffer(msg_size);
     if (!buf) {
-      std::cout << "SST multicast returned false" << std::endl;
+      // std::cout << "SST multicast returned false" << std::endl;
       return nullptr;
     }
     ((header*)buf)->header_size = sizeof(header);

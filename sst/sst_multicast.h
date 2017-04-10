@@ -93,7 +93,11 @@ class sst_multicast_group {
         };
         auto receiver_trig = [this](multicastSST<max_msg_size>& sst) {
             bool sst_changed = false;
-            for(uint i = 0; i < window_size / 2; ++i) {
+	    auto num_times = window_size/2;
+	    if (num_times == 0) {
+	      num_times = 1;
+	    }
+            for(uint i = 0; i < num_times; ++i) {
                 for(uint j = 0; j < num_members; ++j) {
                     uint32_t slot = sst.num_received[my_rank][j] % window_size;
                     if(sst.slots[j][slot].next_seq ==
