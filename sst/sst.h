@@ -46,6 +46,10 @@ public:
         this->base = base;
         return padded_len(field_len);
     }
+    char* get_base() {
+        return const_cast<char*>(base);
+    }
+
     void set_rowLen(const int& _rowLen) { rowLen = _rowLen; }
 };
 
@@ -158,6 +162,8 @@ private:
         rows = new char[rowLen * num_members];
         snapshot = new char[rowLen * num_members];
         volatile char* base = rows;
+	// std::cout << "Base is: " << const_cast<void*>(base) << std::endl;
+	std::cout << "Row is: " << (void *)rows << std::endl;
         set_bases_and_rowLens(base, rowLen, fields...);
     }
 

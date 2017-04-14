@@ -78,44 +78,42 @@ class sst_multicast_group {
 
     void register_predicates() {
         auto receiver_pred = [this](const multicastSST<max_msg_size>& sst) {
-	  //   for(uint i = 0; i < window_size / 2; ++i) {
-          //       for(uint j = 0; j < num_members; ++j) {
-          //           uint32_t slot = sst.num_received[my_rank][j] % window_size;
-          //           if(sst.slots[j][slot].next_seq ==
-          //              (sst.num_received[my_rank][j]) / window_size + 1) {
-	  // 	      return true;
-          //           }
-          //       }
-          //   }
-	  // return false;
+            //   for(uint i = 0; i < window_size / 2; ++i) {
+            //       for(uint j = 0; j < num_members; ++j) {
+            //           uint32_t slot = sst.num_received[my_rank][j] % window_size;
+            //           if(sst.slots[j][slot].next_seq ==
+            //              (sst.num_received[my_rank][j]) / window_size + 1) {
+            // 	      return true;
+            //           }
+            //       }
+            //   }
+            // return false;
 
-	  return true;
+            return true;
         };
         auto receiver_trig = [this](multicastSST<max_msg_size>& sst) {
             bool sst_changed = false;
-            for(uint i = 0; i < window_size / 2; ++i) {
-                for(uint j = 0; j < num_members; ++j) {
-                    uint32_t slot = sst.num_received[my_rank][j] % window_size;
-                    if(sst.slots[j][slot].next_seq ==
-                       (sst.num_received[my_rank][j]) / window_size + 1) {
-                        this->receiver_callback(j, sst.num_received[my_rank][j],
-                                                sst.slots[j][slot].buf,
-                                                sst.slots[j][slot].size);
-                        sst.num_received[my_rank][j]++;
-                        sst_changed = true;
-                    }
+            for(uint j = 0; j < num_members; ++j) {
+                uint32_t slot = sst.num_received[my_rank][j] % window_size;
+                if(sst.slots[j][slot].next_seq ==
+                   (sst.num_received[my_rank][j]) / window_size + 1) {
+                    this->receiver_callback(j, sst.num_received[my_rank][j],
+                                            sst.slots[j][slot].buf,
+                                            sst.slots[j][slot].size);
+                    sst.num_received[my_rank][j]++;
+                    sst_changed = true;
                 }
             }
             if(!sst_changed) {
                 return;
             }
             num_puts++;
-            if(num_puts <= 500) {
-                sst.put((char*)std::addressof(sst.num_received[0][0]) -
+            if(num_puts <= 100) {
+                sst.put(sst.num_received.get_base() -
                             sst.getBaseAddress(),
                         sizeof(sst.num_received[0][0]) * num_members);
             } else {
-                sst.put_with_completion((char*)std::addressof(sst.num_received[0][0]) -
+                sst.put_with_completion(sst.num_received.get_base() -
                                             sst.getBaseAddress(),
                                         sizeof(sst.num_received[0][0]) * num_members);
                 num_puts = 0;
@@ -127,7 +125,7 @@ class sst_multicast_group {
 
 public:
     sst_multicast_group(std::vector<uint> members, uint32_t my_id,
-          uint32_t window_size, receiver_callback_t receiver_callback)
+                        uint32_t window_size, receiver_callback_t receiver_callback)
             : num_members(members.size()),
               window_size(window_size),
               receiver_callback(receiver_callback),
@@ -145,25 +143,39 @@ public:
     volatile char* get_buffer(uint32_t msg_size) {
         std::lock_guard<std::mutex> lock(msg_send_mutex);
         assert(msg_size <= max_msg_size);
-        if(num_queued - num_multicasts_finished < window_size) {
-            uint32_t slot = num_queued % window_size;
-            num_queued++;
-            // set size appropriately
-            sst.slots[my_rank][slot].size = msg_size;
-            return sst.slots[my_rank][slot].buf;
-        } else {
-            uint64_t min_multicast_num =
-                sst.num_received[0][my_rank];
-            for(uint32_t i = 1; i < num_members; ++i) {
-                if(sst.num_received[i][my_rank] <
-                   min_multicast_num) {
-                    min_multicast_num =
-                        sst.num_received[i][my_rank];
+        while(true) {
+            if(num_queued - num_multicasts_finished < window_size) {
+                uint32_t slot = num_queued % window_size;
+                num_queued++;
+                // set size appropriately
+                sst.slots[my_rank][slot].size = msg_size;
+                return sst.slots[my_rank][slot].buf;
+            } else {
+                uint64_t min_multicast_num =
+                    sst.num_received[0][my_rank];
+                for(uint32_t i = 1; i < num_members; ++i) {
+                    if(sst.num_received[i][my_rank] <
+                       min_multicast_num) {
+                        min_multicast_num =
+                            sst.num_received[i][my_rank];
+                    }
+                }
+                if(num_multicasts_finished == min_multicast_num) {
+                    std::cout << "WHOA" << std::endl;
+                    std::cout << "num_multicasts_finished = " << num_multicasts_finished << std::endl;
+                    std::cout << std::addressof(sst.num_received[0][0]) << std::endl;
+                    std::cout << (void*)sst.num_received.get_base() << std::endl;
+                    std::cout << sst.num_received.get_base() - sst.getBaseAddress() << std::endl;
+                    std::cout << std::addressof(sst.num_received[0][0]) << std::endl;
+                    int n;
+                    std::cout << std::addressof(n) << std::endl;
+                    debug_print();
+                    return nullptr;
+                } else {
+                    num_multicasts_finished = min_multicast_num;
                 }
             }
-            num_multicasts_finished = min_multicast_num;
         }
-        return nullptr;
     }
 
     void send() {
@@ -171,17 +183,38 @@ public:
         num_sent++;
         sst.slots[my_rank][slot].next_seq++;
         num_puts++;
-        if(num_puts <= 500) {
+        if(num_puts <= 100) {
             sst.put(
-                (char*)std::addressof(sst.slots[0][slot]) -
+                sst.slots.get_base() + slot * sizeof(sst.slots[0][0]) -
                     sst.getBaseAddress(),
                 sizeof(Message<max_msg_size>));
         } else {
             sst.put_with_completion(
-                (char*)std::addressof(sst.slots[0][slot]) -
+                sst.slots.get_base() + slot * sizeof(sst.slots[0][0]) -
                     sst.getBaseAddress(),
                 sizeof(Message<max_msg_size>));
             num_puts = 0;
         }
+    }
+
+    void debug_print() {
+        using namespace std;
+        cout << "Printing slots::next_seq" << endl;
+        for(uint i = 0; i < num_members; ++i) {
+            for(uint j = 0; j < window_size; ++j) {
+                cout << sst.slots[i][j].next_seq << " ";
+            }
+            cout << endl;
+        }
+        cout << endl;
+
+        cout << "Printing num_received" << endl;
+        for(uint i = 0; i < num_members; ++i) {
+            for(uint j = 0; j < num_members; ++j) {
+                cout << sst.num_received[i][j] << " ";
+            }
+            cout << endl;
+        }
+        cout << endl;
     }
 };

@@ -13,12 +13,12 @@
 #include <mutex>
 #include <pthread.h>
 #include <sys/time.h>
-#include <time.h>
 #include <thread>
+#include <time.h>
 #include <vector>
 
-#include "predicates.h"
 #include "poll_utils.h"
+#include "predicates.h"
 #include "sst.h"
 
 namespace sst {
@@ -68,7 +68,7 @@ void SST<DerivedSST>::detect() {
     // clock_gettime(CLOCK_REALTIME, &last_time);
 
     while(!thread_shutdown) {
-      // bool predicate_fired = false;
+        // bool predicate_fired = false;
         // Take the predicate lock before reading the predicate lists
         std::unique_lock<std::mutex> predicates_lock(predicates.predicate_mutex);
 
@@ -132,7 +132,7 @@ void SST<DerivedSST>::detect() {
         //         predicates_lock.unlock();
         //         using namespace std::chrono_literals;
         //         std::this_thread::sleep_for(1ms);
-	// 	predicates_lock.lock();
+        // 	predicates_lock.lock();
         //     }
         // }
         //Still to do: Clean up deleted predicates
@@ -152,15 +152,15 @@ void SST<DerivedSST>::put(std::vector<uint32_t>& receiver_ranks, long long int o
     return;
 }
 
-  template <typename DerivedSST>
-  void SST<DerivedSST>::put_with_completion(std::vector<uint32_t>& receiver_ranks, long long int offset, long long int size) {
+template <typename DerivedSST>
+void SST<DerivedSST>::put_with_completion(std::vector<uint32_t>& receiver_ranks, long long int offset, long long int size) {
     unsigned int num_writes_posted = 0;
     std::vector<bool> posted_write_to(num_members, false);
 
     const auto tid = std::this_thread::get_id();
     // get id first
     uint32_t id = util::polling_data.get_index(tid);
-    
+
     util::polling_data.set_waiting(tid);
 
     for(auto index : receiver_ranks) {
@@ -175,7 +175,7 @@ void SST<DerivedSST>::put(std::vector<uint32_t>& receiver_ranks, long long int o
     }
 
     return;
-    
+
     // track which nodes haven't failed yet
     std::vector<bool> polled_successfully_from(num_members, false);
 

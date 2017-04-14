@@ -13,6 +13,10 @@ target_link_libraries(count_write sst rdmc)
 add_executable(sst_test sst_test.cpp)
 target_link_libraries(sst_test sst rdmc)
 
+# sst_vector_test
+add_executable(sst_vector_test sst_vector_test.cpp)
+target_link_libraries(sst_vector_test sst rdmc)
+
 # simple_predicate
 add_executable(simple_predicate simple_predicate.cpp)
 target_link_libraries(simple_predicate sst rdmc)
