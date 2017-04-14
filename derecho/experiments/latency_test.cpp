@@ -9,11 +9,6 @@
 #include <thread>
 
 using namespace std;
-using std::string;
-using std::cin;
-using std::cout;
-using std::endl;
-using std::map;
 
 #include "rdmc/rdmc.h"
 #include "rdmc/util.h"

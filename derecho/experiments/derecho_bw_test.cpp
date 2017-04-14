@@ -7,21 +7,16 @@
 
 #include "derecho/derecho.h"
 #include "block_size.h"
-#include "rdmc/util.h"
 #include "aggregate_bandwidth.h"
 #include "block_size.h"
 #include "log_results.h"
-
 #include "rdmc/rdmc.h"
+#include "rdmc/util.h"
 
-using std::vector;
-using std::map;
-using std::cout;
-using std::endl;
-
+using namespace std;
 using namespace derecho;
 
-int count = 0;
+unique_ptr<rdmc::barrier_group> universal_barrier_group;
 
 int main(int argc, char *argv[]) {
     srand(time(NULL));
@@ -57,9 +52,10 @@ int main(int argc, char *argv[]) {
       long long int msg_size) mutable {
         // cout << "In stability callback; sender = " << sender_id
         //      << ", index = " << index << endl;
+        DERECHO_LOG(sender_id, index, "stability_callback");
         if(num_senders_selector == 0) {
             if(index == num_messages - 1 && sender_id == (int)num_nodes - 1) {
-                done = true;
+	      done = true;
             }
         } else if(num_senders_selector == 1) {
             if(index == num_messages - 1) {
@@ -89,6 +85,20 @@ int main(int argc, char *argv[]) {
                 derecho::CallbackSet{stability_callback, nullptr});
     }
 
+    universal_barrier_group = std::make_unique<rdmc::barrier_group>(members);
+
+    universal_barrier_group->barrier_wait();
+    uint64_t t1 = get_time();
+    universal_barrier_group->barrier_wait();
+    uint64_t t2 = get_time();
+    reset_epoch();
+    universal_barrier_group->barrier_wait();
+    uint64_t t3 = get_time();
+    printf(
+        "Synchronized clocks.\nTotal possible variation = %5.3f us\n"
+        "Max possible variation from local = %5.3f us\n",
+        (t3 - t1) * 1e-3f, max(t2 - t1, t3 - t2) * 1e-3f);
+    fflush(stdout);
 
     cout << "Finished constructing/joining ManagedGroup" << endl;
 
@@ -164,10 +174,13 @@ int main(int argc, char *argv[]) {
                 "data_derecho_bw");
 
     managed_group->barrier_sync();
+    flush_events();
+    managed_group->barrier_sync();
     // std::string log_filename =
     //     (std::stringstream() << "events_node" << node_rank << ".csv").str();
     // std::ofstream logfile(log_filename);
     // managed_group->print_log(logfile);
+    exit(0);
     managed_group->leave();
     cout << "Finished destroying managed_group" << endl;
 }

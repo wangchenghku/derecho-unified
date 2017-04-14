@@ -273,7 +273,7 @@ bool MulticastGroup<dispatchersType>::create_sst_multicast_group() {
     std::cout << std::endl;
 
     auto sst_receive_handler = [this](uint32_t sender_rank, uint64_t index_ignored, volatile char* data, uint32_t size) {
-        // DERECHO_LOG(sender_rank, index_ignored, "received_message");
+        DERECHO_LOG(sender_rank, index_ignored, "received_message");
         // ignore index
         /* util::debug_log().log_event(std::stringstream() << "Locally received message from sender " << groupnum << ": index = " << (sst->nReceived[member_index][groupnum] + 1)); */
         std::lock_guard<std::mutex> lock(msg_state_mtx);
@@ -399,7 +399,7 @@ void MulticastGroup<dispatchersType>::initialize_sst_row() {
 
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
-    // DERECHO_LOG(-1, -1, "deliver_message()");
+    DERECHO_LOG(-1, -1, "deliver_message()");
     if(msg.size > 0) {
         char* buf = (char*)msg.buf;
         header* h = (header*)(buf);
@@ -454,10 +454,10 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
         // raw send
         else {
             if(msg.size - h->header_size) {
-                // DERECHO_LOG(-1, -1, "start_stability_callback");
+                DERECHO_LOG(-1, -1, "start_stability_callback");
                 callbacks.global_stability_callback(msg.sender_rank, msg.index,
                                                     buf + h->header_size, msg.size - h->header_size);
-                // DERECHO_LOG(-1, -1, "end_stability_callback");
+                DERECHO_LOG(-1, -1, "end_stability_callback");
             }  // else {
                // std::cout << "A null message was sent" << std::endl;
                // std::cout << "sender_rank = " << msg.sender_rank
@@ -489,7 +489,7 @@ void MulticastGroup<dispatchersType>::deliver_message(Message& msg) {
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::deliver_messages_upto(
     const std::vector<long long int>& max_indices_for_senders) {
-    // DERECHO_LOG(-1, -1, "deliver_messages_upto()");
+    DERECHO_LOG(-1, -1, "deliver_messages_upto()");
     assert(max_indices_for_senders.size() == (size_t)num_members);
     std::lock_guard<std::mutex> lock(msg_state_mtx);
     auto curr_seq_num = sst->delivered_num[member_index];
@@ -500,14 +500,14 @@ void MulticastGroup<dispatchersType>::deliver_messages_upto(
             std::max(max_seq_num,
                      max_indices_for_senders[sender] * num_members + sender);
     }
-    // DERECHO_LOG(-1, -1, "deliver_messages_upto_loop");
+    DERECHO_LOG(-1, -1, "deliver_messages_upto_loop");
     for(auto seq_num = curr_seq_num; seq_num <= max_seq_num; seq_num++) {
         auto msg_ptr = locally_stable_messages.find(seq_num);
         if(msg_ptr != locally_stable_messages.end()) {
             deliver_message(msg_ptr->second);
-            // DERECHO_LOG(-1, -1, "erase_message");
+            DERECHO_LOG(-1, -1, "erase_message");
             locally_stable_messages.erase(msg_ptr);
-            // DERECHO_LOG(-1, -1, "erase_message_done");
+            DERECHO_LOG(-1, -1, "erase_message_done");
         }
     }
 }
@@ -566,13 +566,13 @@ void MulticastGroup<dispatchersType>::register_predicates() {
                 //     }
                 // }
                 deliver_message(msg);
-                // DERECHO_LOG(-1, -1, "deliver_message() done");
+                DERECHO_LOG(-1, -1, "deliver_message() done");
                 sst.delivered_num[member_index] = least_undelivered_seq_num;
                 //                sst.put (offsetof (DerechoRow<N>,
                 //                delivered_num), sizeof
                 //                (least_undelivered_seq_num));
                 locally_stable_messages.erase(locally_stable_messages.begin());
-                // DERECHO_LOG(-1, -1, "message_erase_done");
+                DERECHO_LOG(-1, -1, "message_erase_done");
                 update_sst = true;
             } else {
                 break;
@@ -714,7 +714,7 @@ bool MulticastGroup<dispatchersType>::send() {
         return false;
     }
     multicast_group->send();
-    // DERECHO_LOG(-1, -1, "user_send_finished");
+    DERECHO_LOG(-1, -1, "user_send_finished");
     return true;
     // std::lock_guard<std::mutex> lock(msg_state_mtx);
     // assert(next_send);
