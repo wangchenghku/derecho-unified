@@ -25,10 +25,11 @@ public:
             : sst::SST<multicastSST<max_msg_size>>(this, sst::SSTParams{_members, my_id}),
               slots(window_size),
               num_received(_members.size()) {
-        this->SSTInit(slots, num_received);
+        this->SSTInit(slots, num_received, heartbeat);
     }
     sst::SSTFieldVector<Message<max_msg_size>> slots;
     sst::SSTFieldVector<uint64_t> num_received;
+    sst::SSTField<bool> heartbeat;
 };
 
 // template <uint32_t window_size, uint32_t max_msg_size, uint32_t max_members>
@@ -95,7 +96,9 @@ class sst_multicast_group {
             return true;
         };
         auto receiver_trig = [this](multicastSST<max_msg_size>& sst) {
-            for(uint j = 0; j < num_members; ++j) {
+	  bool update_sst = false;
+	  for(uint i = 0; i < window_size / 2; ++i) {
+	    for(uint j = 0; j < num_members; ++j) {
                 uint32_t slot = sst.num_received[my_rank][j] % window_size;
                 if(sst.slots[j][slot].next_seq ==
                    (sst.num_received[my_rank][j]) / window_size + 1) {
@@ -103,11 +106,15 @@ class sst_multicast_group {
                                             sst.slots[j][slot].buf,
                                             sst.slots[j][slot].size);
                     sst.num_received[my_rank][j]++;
-                    sst.put(sst.num_received.get_base() + sizeof(sst.num_received[0][0]) * j -
-                                sst.getBaseAddress(),
-                            sizeof(sst.num_received[0][0]));
+                    update_sst = true;
                 }
             }
+	  }
+      if(update_sst) {
+          sst.put(sst.num_received.get_base() -
+                      sst.getBaseAddress(),
+                  sizeof(sst.num_received[0][0]) * num_members);
+      }
         };
         sst.predicates.insert(receiver_pred, receiver_trig,
                               sst::PredicateType::RECURRENT);
@@ -173,7 +180,7 @@ public:
     void check_failures_loop() {
         while(true) {
             std::this_thread::sleep_for(std::chrono::microseconds(100));
-            sst.put_with_completion();
+            sst.put_with_completion(sst.heartbeat.get_base() - sst.getBaseAddress(), sizeof(bool));
         }
     }
 
