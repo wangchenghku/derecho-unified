@@ -18,6 +18,16 @@ public:
     sst::SSTFieldVector<long long int> b;
 };
 
+void print (mySST& sst) {
+  for (int i = 0; i < 2; ++i) {
+    cout << sst.a[i] << " " << sst.c[i] << " ";
+    for (int j = 0; j < 5; ++j) {
+      cout << sst.b[i][j] << " ";
+    }
+    cout << endl;
+  }
+}
+
 int main() {
     // input number of nodes and the local node id
     uint32_t num_nodes, my_id;
@@ -38,15 +48,52 @@ int main() {
     }
 
     mySST sst(members, my_id);
-    cout << "Using address of: " << std::addressof(sst.b[0][0]) << endl;
-    cout << "Base value: " << const_cast<long long int*>(sst.b[0]) << endl;
-    // cout << sst.a[0] << endl;
-    // cout << sst.c[0] << endl;
+    cout << "Using address of: " << (char*)std::addressof(sst.b[0][0]) - sst.getBaseAddress() << endl;
+    cout << "Base value: " << sst.b.get_base() - sst.getBaseAddress() << endl;
+    sst.a[0] = 0;
+    sst.a[1] = 1;
+    sst.c[0] = 'a';
+    sst.c[1] = 'b';
+    for (int i = 0; i < 5; ++i) {
+      sst.b[0][i] = i;
+      sst.b[1][i] = i+1;
+    }
     sst::sync(1-my_id);
+    print(sst);
     // for(uint i = 0; i < num_nodes; ++i) {
     //     cout << sst.a(i) << endl;
     // }
     while (true) {
-      
+      int op;
+      int a;
+      char c;
+      long long int lb;
+      int pos;
+      cout << "Enter option" << endl;
+      cin >> op;
+      switch (op) {
+      case 0:
+	print(sst);
+	break;
+      case 1:
+	cin >> a;
+	sst.a[my_id] = a;
+	print(sst);
+	sst.put();
+	break;
+      case 2:
+	cin >> c;
+	sst.c[my_id] = c;
+	print(sst);
+	sst.put();
+	break;
+      case 3:
+	cin >> pos;
+	cin >> lb;
+	sst.b[my_id][pos] = lb;
+	print(sst);
+	sst.put();
+	break;
+      }
     }
 }

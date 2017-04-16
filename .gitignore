@@ -42,3 +42,4 @@ CMakeFiles
 /derecho/experiments/subgroup_test
 /derecho/experiments/typed_subgroup_test
 /derecho/experiments/null_message_send
+/sst/experiments/sst_vector_test

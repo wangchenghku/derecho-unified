@@ -1,10 +1,12 @@
 #include <cassert>
+#include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <functional>
 #include <iostream>
 #include <map>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include "sst/sst.h"
@@ -40,7 +42,6 @@ typedef std::function<void(uint32_t, uint64_t, volatile char*, uint32_t)>
 
 template <uint32_t max_msg_size>
 class sst_multicast_group {
-    uint64_t num_puts = 0;
     // number of messages for which get_buffer has been called
     uint64_t num_queued = 0;
     // number of messages for which RDMA write is complete
@@ -61,6 +62,8 @@ class sst_multicast_group {
 
     // SST
     multicastSST<max_msg_size> sst;
+
+    std::thread timeout_thread;
 
     void initialize() {
         for(uint i = 0; i < num_members; ++i) {
@@ -92,7 +95,6 @@ class sst_multicast_group {
             return true;
         };
         auto receiver_trig = [this](multicastSST<max_msg_size>& sst) {
-            bool sst_changed = false;
             for(uint j = 0; j < num_members; ++j) {
                 uint32_t slot = sst.num_received[my_rank][j] % window_size;
                 if(sst.slots[j][slot].next_seq ==
@@ -101,22 +103,10 @@ class sst_multicast_group {
                                             sst.slots[j][slot].buf,
                                             sst.slots[j][slot].size);
                     sst.num_received[my_rank][j]++;
-                    sst_changed = true;
+                    sst.put(sst.num_received.get_base() + sizeof(sst.num_received[0][0]) * j -
+                                sst.getBaseAddress(),
+                            sizeof(sst.num_received[0][0]));
                 }
-            }
-            if(!sst_changed) {
-                return;
-            }
-            num_puts++;
-            if(num_puts <= 100) {
-                sst.put(sst.num_received.get_base() -
-                            sst.getBaseAddress(),
-                        sizeof(sst.num_received[0][0]) * num_members);
-            } else {
-                sst.put_with_completion(sst.num_received.get_base() -
-                                            sst.getBaseAddress(),
-                                        sizeof(sst.num_received[0][0]) * num_members);
-                num_puts = 0;
             }
         };
         sst.predicates.insert(receiver_pred, receiver_trig,
@@ -138,6 +128,7 @@ public:
         }
         initialize();
         register_predicates();
+        timeout_thread = std::thread(&sst_multicast_group::check_failures_loop, this);
     }
 
     volatile char* get_buffer(uint32_t msg_size) {
@@ -161,15 +152,6 @@ public:
                     }
                 }
                 if(num_multicasts_finished == min_multicast_num) {
-                    std::cout << "WHOA" << std::endl;
-                    std::cout << "num_multicasts_finished = " << num_multicasts_finished << std::endl;
-                    std::cout << std::addressof(sst.num_received[0][0]) << std::endl;
-                    std::cout << (void*)sst.num_received.get_base() << std::endl;
-                    std::cout << sst.num_received.get_base() - sst.getBaseAddress() << std::endl;
-                    std::cout << std::addressof(sst.num_received[0][0]) << std::endl;
-                    int n;
-                    std::cout << std::addressof(n) << std::endl;
-                    debug_print();
                     return nullptr;
                 } else {
                     num_multicasts_finished = min_multicast_num;
@@ -182,18 +164,16 @@ public:
         uint32_t slot = num_sent % window_size;
         num_sent++;
         sst.slots[my_rank][slot].next_seq++;
-        num_puts++;
-        if(num_puts <= 100) {
-            sst.put(
-                sst.slots.get_base() + slot * sizeof(sst.slots[0][0]) -
-                    sst.getBaseAddress(),
-                sizeof(Message<max_msg_size>));
-        } else {
-            sst.put_with_completion(
-                sst.slots.get_base() + slot * sizeof(sst.slots[0][0]) -
-                    sst.getBaseAddress(),
-                sizeof(Message<max_msg_size>));
-            num_puts = 0;
+        sst.put(
+            sst.slots.get_base() + slot * sizeof(sst.slots[0][0]) -
+                sst.getBaseAddress(),
+            sizeof(Message<max_msg_size>));
+    }
+
+    void check_failures_loop() {
+        while(true) {
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+            sst.put_with_completion();
         }
     }
 

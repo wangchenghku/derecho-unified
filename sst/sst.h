@@ -162,8 +162,6 @@ private:
         rows = new char[rowLen * num_members];
         snapshot = new char[rowLen * num_members];
         volatile char* base = rows;
-	// std::cout << "Base is: " << const_cast<void*>(base) << std::endl;
-	std::cout << "Row is: " << (void *)rows << std::endl;
         set_bases_and_rowLens(base, rowLen, fields...);
     }
 

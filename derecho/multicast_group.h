@@ -45,7 +45,7 @@ struct DerechoParams : public mutils::ByteRepresentable {
     long long unsigned int block_size;
     std::string filename = std::string();
     unsigned int window_size = 3;
-    unsigned int timeout_ms = 1;
+    unsigned int timeout_us = 100;
     rdmc::send_algorithm type = rdmc::BINOMIAL_SEND;
     uint32_t rpc_port = 12487;
 
@@ -53,19 +53,19 @@ struct DerechoParams : public mutils::ByteRepresentable {
                   long long unsigned int block_size,
                   std::string filename = std::string(),
                   unsigned int window_size = 3,
-                  unsigned int timeout_ms = 1,
+                  unsigned int timeout_us = 100,
                   rdmc::send_algorithm type = rdmc::BINOMIAL_SEND,
                   uint32_t rpc_port = 12487)
             : max_payload_size(max_payload_size),
               block_size(block_size),
               filename(filename),
               window_size(window_size),
-              timeout_ms(timeout_ms),
+              timeout_us(timeout_us),
               type(type),
               rpc_port(rpc_port) {
     }
 
-    DEFAULT_SERIALIZATION_SUPPORT(DerechoParams, max_payload_size, block_size, filename, window_size, timeout_ms, type, rpc_port);
+    DEFAULT_SERIALIZATION_SUPPORT(DerechoParams, max_payload_size, block_size, filename, window_size, timeout_us, type, rpc_port);
 };
 
 struct __attribute__((__packed__)) header {
