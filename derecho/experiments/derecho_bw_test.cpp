@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
     long long unsigned int max_msg_size = atoll(argv[1]);
     long long unsigned int block_size = get_block_size(max_msg_size);
     int num_senders_selector = atoi(argv[2]);
-    int num_messages = 100000;
+    int num_messages = 1000;
     max_msg_size -= 16;
 
     bool done = false;
@@ -86,6 +86,11 @@ int main(int argc, char *argv[]) {
                 derecho::CallbackSet{stability_callback, nullptr});
     }
 
+    cout << "Finished constructing/joining ManagedGroup" << endl;
+
+    while(managed_group->get_members().size() < num_nodes) {
+    }
+
     universal_barrier_group = std::make_unique<rdmc::barrier_group>(members);
 
     universal_barrier_group->barrier_wait();
@@ -101,10 +106,6 @@ int main(int argc, char *argv[]) {
         (t3 - t1) * 1e-3f, max(t2 - t1, t3 - t2) * 1e-3f);
     fflush(stdout);
 
-    cout << "Finished constructing/joining ManagedGroup" << endl;
-
-    while(managed_group->get_members().size() < num_nodes) {
-    }
     auto members_order = managed_group->get_members();
     // cout << "The order of members is :" << endl;
     // for(auto id : members_order) {
