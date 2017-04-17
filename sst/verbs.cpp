@@ -137,8 +137,8 @@ resources::resources(int r_index, char *write_addr, char *read_addr, int size_w,
     qp_init_attr.send_cq = g_res->cq;
     qp_init_attr.recv_cq = g_res->cq;
     // allow a lot of requests at a time
-    qp_init_attr.cap.max_send_wr = 1000;
-    qp_init_attr.cap.max_recv_wr = 1000;
+    qp_init_attr.cap.max_send_wr = 10000;
+    qp_init_attr.cap.max_recv_wr = 10000;
     qp_init_attr.cap.max_send_sge = 1;
     qp_init_attr.cap.max_recv_sge = 1;
     // create the queue pair
@@ -525,7 +525,7 @@ void resources_create() {
     // cout << "device_attr.max_cqe = " << g_res->device_attr.max_cqe << endl;
     
     // set to 1000 entries
-    cq_size = 1000;
+    cq_size = 10000;
     g_res->cq = ibv_create_cq(g_res->ib_ctx, cq_size, NULL, NULL, 0);
     check_for_error(g_res->cq,
                     "Could not create completion queue, error code is " +

@@ -275,50 +275,7 @@ bool MulticastGroup<dispatchersType>::create_sst_multicast_group() {
     }
     std::cout << std::endl;
 
-    auto sst_receive_handler = [this](std::vector<uint32_t>& sender_ranks, std::vector<uint64_t>& indices_ignored, std::vector<volatile char*>& data_vec, std::vector<uint32_t>& sizes, uint32_t num_entries) {
-        // DERECHO_LOG(-1, -1, "received_messages");
-        std::unique_lock<std::mutex> lock(msg_state_mtx);
-        for(uint i = 0; i < num_entries; ++i) {
-            uint32_t sender_rank = sender_ranks[i];
-            volatile char* data = data_vec[i];
-            uint32_t size = sizes[i];
-            // ignore index
-            /* util::debug_log().log_event(std::stringstream() << "Locally received message from sender " << groupnum << ": index = " << (sst->nReceived[member_index][groupnum] + 1)); */
-            header* h = (header*)data;
-            sst->nReceived[member_index][sender_rank]++;
-            long long int index = sst->nReceived[member_index][sender_rank];
-            long long int sequence_number = index * num_members + sender_rank;
-
-            locally_stable_messages[sequence_number] = {(int)sender_rank, index, size, data};
-
-            // Add empty messages to locally_stable_messages for each turn that the sender is skipping.
-            for(unsigned int j = 0; j < h->pause_sending_turns; ++j) {
-                index++;
-                sequence_number += num_members;
-                sst->nReceived[member_index][sender_rank]++;
-                locally_stable_messages[sequence_number] = {(int)sender_rank, index, 0, 0};
-            }
-        }
-        lock.unlock();
-        // std::atomic_signal_fence(std::memory_order_acq_rel);
-        auto* min_ptr = std::min_element(&sst->nReceived[member_index][0],
-                                         &sst->nReceived[member_index][num_members]);
-        int min_index = std::distance(&sst->nReceived[member_index][0], min_ptr);
-        auto new_seq_num = (*min_ptr + 1) * num_members + min_index - 1;
-        if(new_seq_num > sst->seq_num[member_index]) {
-            /* util::debug_log().log_event(std::stringstream() << "Updating seq_num to "  << new_seq_num); */
-            sst->seq_num[member_index] = new_seq_num;
-            sst->put((char*)std::addressof(sst->seq_num[0]) - sst->getBaseAddress(),
-                     sizeof(long long int));
-            sst->put((char*)std::addressof(sst->nReceived[0][0]) - sst->getBaseAddress(),
-                     sizeof(long long int) * num_members);
-        } else {
-            sst->put((char*)std::addressof(sst->nReceived[0][0]) - sst->getBaseAddress(),
-                     sizeof(long long int) * num_members);
-        }
-    };
-
-    multicast_group = new sst_multicast_group<10100> (members, members[member_index], window_size, sst_receive_handler);
+    multicast_group = new sst_multicast_group<10100> (members, members[member_index], window_size);
     return true;
 }
 
@@ -432,7 +389,6 @@ void MulticastGroup<dispatchersType>::deliver_messages_upto(
     const std::vector<long long int>& max_indices_for_senders) {
     // DERECHO_LOG(-1, -1, "deliver_messages_upto()");
     assert(max_indices_for_senders.size() == (size_t)num_members);
-    assert(false);
     std::lock_guard<std::mutex> lock(msg_state_mtx);
     auto curr_seq_num = sst->delivered_num[member_index];
     auto max_seq_num = curr_seq_num;
@@ -456,6 +412,75 @@ void MulticastGroup<dispatchersType>::deliver_messages_upto(
 
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::register_predicates() {
+    auto receiver_pred = [this](const DerechoSST&) {
+        return true;
+    };
+    auto num_times = window_size / num_members;
+    assert(num_times * num_members <= window_size);
+    if(!num_times) {
+        num_times = 1;
+    }
+    auto sst_receive_handler = [this](uint32_t sender_rank, uint64_t index_ignored, volatile char* data, uint32_t size) {
+        // DERECHO_LOG(-1, -1, "received_messages");
+        // ignore index
+        /* util::debug_log().log_event(std::stringstream() << "Locally received message from sender " << groupnum << ": index = " << (sst->nReceived[member_index][groupnum] + 1)); */
+        header* h = (header*)data;
+        sst->nReceived[member_index][sender_rank]++;
+        long long int index = sst->nReceived[member_index][sender_rank];
+        long long int sequence_number = index * num_members + sender_rank;
+
+        locally_stable_messages[sequence_number] = {(int)sender_rank, index, size, data};
+
+        // Add empty messages to locally_stable_messages for each turn that the sender is skipping.
+        for(unsigned int j = 0; j < h->pause_sending_turns; ++j) {
+            index++;
+            sequence_number += num_members;
+            sst->nReceived[member_index][sender_rank]++;
+            locally_stable_messages[sequence_number] = {(int)sender_rank, index, 0, 0};
+        }
+    };
+    auto receiver_trig = [this, num_times, sst_receive_handler](DerechoSST& sst) mutable {
+        auto& multicastSST = multicast_group->sst;
+        bool update_sst = false;
+        std::lock_guard<std::mutex> lock(msg_state_mtx);
+        for(uint i = 0; i < num_times; ++i) {
+            for(int j = 0; j < num_members; ++j) {
+                uint32_t slot = multicastSST.num_received[member_index][j] % window_size;
+                if(multicastSST.slots[j][slot].next_seq ==
+                   (multicastSST.num_received[member_index][j]) / window_size + 1) {
+                    sst_receive_handler(j, multicastSST.num_received[member_index][j],
+                                        multicastSST.slots[j][slot].buf,
+                                        multicastSST.slots[j][slot].size);
+                    multicastSST.num_received[member_index][j]++;
+                    update_sst = true;
+                }
+            }
+        }
+        if(update_sst) {
+            multicastSST.put(multicastSST.num_received.get_base() -
+                                 multicastSST.getBaseAddress(),
+                             sizeof(multicastSST.num_received[0][0]) * num_members);
+            // std::atomic_signal_fence(std::memory_order_acq_rel);
+            auto* min_ptr = std::min_element(&sst.nReceived[member_index][0],
+                                             &sst.nReceived[member_index][num_members]);
+            int min_index = std::distance(&sst.nReceived[member_index][0], min_ptr);
+            auto new_seq_num = (*min_ptr + 1) * num_members + min_index - 1;
+            if(new_seq_num > sst.seq_num[member_index]) {
+                /* util::debug_log().log_event(std::stringstream() << "Updating seq_num to "  << new_seq_num); */
+                sst.seq_num[member_index] = new_seq_num;
+                sst.put((char*)std::addressof(sst.seq_num[0]) - sst.getBaseAddress(),
+                         sizeof(long long int));
+                sst.put((char*)std::addressof(sst.nReceived[0][0]) - sst.getBaseAddress(),
+                         sizeof(long long int) * num_members);
+            } else {
+                sst.put((char*)std::addressof(sst.nReceived[0][0]) - sst.getBaseAddress(),
+                         sizeof(long long int) * num_members);
+            }
+        }
+    };
+    sst->predicates.insert(receiver_pred, receiver_trig,
+                          sst::PredicateType::RECURRENT);
+
     auto stability_pred = [this](
         const DerechoSST& sst) { return true; };
     auto stability_trig =
@@ -529,8 +554,8 @@ void MulticastGroup<dispatchersType>::register_predicates() {
 
     auto sender_pred = [this](const DerechoSST& sst) {
         long long int seq_num = next_message_to_deliver * num_members + member_index;
-        for (int i = 0; i < num_members; ++i) {
-            if (sst.delivered_num[i] < seq_num || (file_writer && sst.persisted_num[i] < seq_num)) {
+        for(int i = 0; i < num_members; ++i) {
+            if(sst.delivered_num[i] < seq_num || (file_writer && sst.persisted_num[i] < seq_num)) {
                 return false;
             }
         }
