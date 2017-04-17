@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
     long long unsigned int max_msg_size = atoll(argv[1]);
     long long unsigned int block_size = get_block_size(max_msg_size);
     int num_senders_selector = atoi(argv[2]);
-    int num_messages = 1000;
+    int num_messages = atoi(argv[4]);
     max_msg_size -= 16;
 
     bool done = false;
@@ -71,7 +71,7 @@ int main(int argc, char *argv[]) {
         }
     };
 
-    unsigned int window_size = 6;
+    unsigned int window_size = atoi(argv[3]);
     rpc::Dispatcher<> empty_dispatcher(node_rank);
     std::unique_ptr<derecho::Group<rpc::Dispatcher<>>> managed_group;
     if(node_rank == server_rank) {

@@ -415,13 +415,12 @@ void MulticastGroup<dispatchersType>::register_predicates() {
     auto receiver_pred = [this](const DerechoSST&) {
         return true;
     };
-    auto num_times = window_size / num_members;
-    assert(num_times * num_members <= window_size);
+    auto num_times = window_size / 2;
     if(!num_times) {
         num_times = 1;
     }
     auto sst_receive_handler = [this](uint32_t sender_rank, uint64_t index_ignored, volatile char* data, uint32_t size) {
-        // DERECHO_LOG(-1, -1, "received_messages");
+        // DERECHO_LOG(sender_rank, index_ignored, "received_messages");
         // ignore index
         /* util::debug_log().log_event(std::stringstream() << "Locally received message from sender " << groupnum << ": index = " << (sst->nReceived[member_index][groupnum] + 1)); */
         header* h = (header*)data;
@@ -485,6 +484,8 @@ void MulticastGroup<dispatchersType>::register_predicates() {
         const DerechoSST& sst) { return true; };
     auto stability_trig =
         [this](DerechoSST& sst) {
+            static int stability_cnt = 0;
+	    stability_cnt++;
             // compute the min of the seq_num
             long long int min_seq_num = sst.seq_num[0];
             for(int i = 0; i < num_members; ++i) {
@@ -493,6 +494,7 @@ void MulticastGroup<dispatchersType>::register_predicates() {
                 }
             }
             if(min_seq_num > sst.stable_num[member_index]) {
+                // DERECHO_LOG(stability_cnt, min_seq_num, "stability_trig");
                 /* util::debug_log().log_event(std::stringstream() */
                 /*                             << "Updating stable_num to " */
                 /*                             << min_seq_num); */
