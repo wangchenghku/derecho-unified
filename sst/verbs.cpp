@@ -524,7 +524,7 @@ void resources_create() {
     // cout << "device_attr.max_qp_wr = " << g_res->device_attr.max_qp_wr << endl;
     // cout << "device_attr.max_cqe = " << g_res->device_attr.max_cqe << endl;
     
-    // set to 1000 entries
+    // set to 10000 entries
     cq_size = 10000;
     g_res->cq = ibv_create_cq(g_res->ib_ctx, cq_size, NULL, NULL, 0);
     check_for_error(g_res->cq,
