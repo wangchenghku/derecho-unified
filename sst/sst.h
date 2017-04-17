@@ -160,7 +160,7 @@ private:
         rowLen = 0;
         compute_rowLen(rowLen, fields...);
         rows = new char[rowLen * num_members];
-        snapshot = new char[rowLen * num_members];
+        // snapshot = new char[rowLen * num_members];
         volatile char* base = rows;
         set_bases_and_rowLens(base, rowLen, fields...);
     }
@@ -179,7 +179,7 @@ public:
 private:
     /** Pointer to memory where the SST rows are stored. */
     volatile char* rows;
-    char* snapshot;
+    // char* snapshot;
     /** Length of each row in this SST, in bytes. */
     int rowLen;
     /** List of nodes in the SST; indexes are row numbers, values are node IDs. */
@@ -358,18 +358,18 @@ private:
         set_bases_and_rowLens(base, rlen, rest...);
     }
 
-    void take_snapshot() {
-        memcpy(snapshot, const_cast<char*>(rows), rowLen * num_members);
-    }
+    // void take_snapshot() {
+    //   memcpy(snapshot, const_cast<char*>(rows), rowLen * num_members);
+    // }
 
-    // returns snapshot == current
-    bool compare_snapshot_and_current() {
-        int res = memcmp(const_cast<char*>(rows), snapshot, rowLen * num_members);
-        if(res == 0) {
-            return true;
-        }
-        return false;
-    }
+    // // returns snapshot == current
+    // bool compare_snapshot_and_current() {
+    //     int res = memcmp(const_cast<char*>(rows), snapshot, rowLen * num_members);
+    //     if(res == 0) {
+    //         return true;
+    //     }
+    //     return false;
+    // }
 };
 
 } /* namespace sst */

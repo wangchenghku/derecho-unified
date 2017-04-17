@@ -71,7 +71,7 @@ int main(int argc, char *argv[]) {
         }
     };
 
-    unsigned int window_size = 25;
+    unsigned int window_size = 6;
     rpc::Dispatcher<> empty_dispatcher(node_rank);
     std::unique_ptr<derecho::Group<rpc::Dispatcher<>>> managed_group;
     if(node_rank == server_rank) {

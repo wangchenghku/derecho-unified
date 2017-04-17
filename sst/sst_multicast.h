@@ -38,7 +38,7 @@ public:
 //     uint64_t num_received[max_members];
 // };
 
-typedef std::function<void(uint32_t, uint64_t, volatile char*, uint32_t)>
+typedef std::function<void(std::vector<uint32_t>&, std::vector<uint64_t>&, std::vector<volatile char*>&, std::vector<uint32_t>&, uint32_t)>
     receiver_callback_t;
 
 template <uint32_t max_msg_size>
@@ -95,26 +95,43 @@ class sst_multicast_group {
 
             return true;
         };
-        auto receiver_trig = [this](multicastSST<max_msg_size>& sst) {
-	  bool update_sst = false;
-	  for(uint i = 0; i < window_size / 2; ++i) {
-	    for(uint j = 0; j < num_members; ++j) {
-                uint32_t slot = sst.num_received[my_rank][j] % window_size;
-                if(sst.slots[j][slot].next_seq ==
-                   (sst.num_received[my_rank][j]) / window_size + 1) {
-                    this->receiver_callback(j, sst.num_received[my_rank][j],
-                                            sst.slots[j][slot].buf,
-                                            sst.slots[j][slot].size);
-                    sst.num_received[my_rank][j]++;
-                    update_sst = true;
+        auto num_times = window_size / num_members;
+        assert(num_times * num_members <= window_size);
+        if(!num_times) {
+            num_times = 1;
+        }
+        std::vector<uint32_t> sender_ranks(window_size);
+        std::vector<uint64_t> indices(window_size);
+        std::vector<volatile char*> data(window_size);
+        std::vector<uint32_t> sizes(window_size);
+        uint32_t num_entries = 0;
+        auto receiver_trig = [this, num_times, sender_ranks, indices, data, sizes, num_entries](multicastSST<max_msg_size>& sst) mutable {
+            bool update_sst = false;
+            for(uint i = 0; i < num_times; ++i) {
+                for(uint j = 0; j < num_members; ++j) {
+                    uint32_t slot = sst.num_received[my_rank][j] % window_size;
+                    if(sst.slots[j][slot].next_seq ==
+                       (sst.num_received[my_rank][j]) / window_size + 1) {
+                        // this->receiver_callback(j, sst.num_received[my_rank][j],
+                        //                         sst.slots[j][slot].buf,
+                        //                         sst.slots[j][slot].size);
+                        sender_ranks[num_entries] = j;
+                        indices[num_entries] = sst.num_received[my_rank][j];
+                        data[num_entries] = sst.slots[j][slot].buf;
+			sizes[num_entries] = sst.slots[j][slot].size;
+			num_entries++;
+                        sst.num_received[my_rank][j]++;
+                        update_sst = true;
+                    }
                 }
             }
-	  }
-      if(update_sst) {
-          sst.put(sst.num_received.get_base() -
-                      sst.getBaseAddress(),
-                  sizeof(sst.num_received[0][0]) * num_members);
-      }
+            if(update_sst) {
+                sst.put(sst.num_received.get_base() -
+                            sst.getBaseAddress(),
+                        sizeof(sst.num_received[0][0]) * num_members);
+                this->receiver_callback(sender_ranks, indices, data, sizes, num_entries);
+            }
+            num_entries = 0;
         };
         sst.predicates.insert(receiver_pred, receiver_trig,
                               sst::PredicateType::RECURRENT);
