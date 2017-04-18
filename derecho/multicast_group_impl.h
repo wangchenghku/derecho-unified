@@ -438,7 +438,7 @@ void MulticastGroup<dispatchersType>::register_predicates() {
             locally_stable_messages[sequence_number] = {(int)sender_rank, index, 0, 0};
         }
     };
-    auto receiver_trig = [this, num_times, sst_receive_handler](DerechoSST& sst) mutable {
+    auto receiver_trig = [this, num_times, sst_receive_handler](DerechoSST& sst) {
         bool update_sst = false;
         std::lock_guard<std::mutex> lock(msg_state_mtx);
         for(uint i = 0; i < num_times; ++i) {
