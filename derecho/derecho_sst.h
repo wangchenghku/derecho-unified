@@ -8,6 +8,7 @@
 #include <string>
 #include <sstream>
 #include "sst/sst.h"
+#include "sst/sst_multicast_msg.h"
 
 namespace derecho {
 
@@ -86,6 +87,10 @@ public:
     SSTFieldVector<int> globalMin;
     /** Must come after GlobalMin */
     SSTField<bool> globalMinReady;
+    /** for SST multicast */
+    SSTFieldVector<Message> slots;
+    SSTFieldVector<uint64_t> num_received_sst;
+
     /** to check for failures - used by the thread running check_failures_loop in derecho_group **/
     SSTField<bool> heartbeat;
     /**
@@ -94,19 +99,22 @@ public:
      * @param parameters The SST parameters, which will be forwarded to the
      * standard SST constructor.
      */
-    DerechoSST(const sst::SSTParams& parameters)
+    DerechoSST(const sst::SSTParams& parameters, uint32_t window_size)
             : sst::SST<DerechoSST>(this, parameters),
               suspected(parameters.members.size()),
               changes(parameters.members.size()),
               joiner_ips(parameters.members.size()),
               nReceived(parameters.members.size()),
-              globalMin(parameters.members.size()) {
+              globalMin(parameters.members.size()),
+              slots(window_size),
+              num_received_sst(parameters.members.size()) {
         SSTInit(seq_num, stable_num, delivered_num,
                 persisted_num, vid, suspected, changes, joiner_ips,
                 num_changes, num_committed, num_acked, num_installed,
-                nReceived, wedged, globalMin, globalMinReady, heartbeat);
+                nReceived, wedged, globalMin, globalMinReady, slots,
+                num_received_sst, heartbeat);
         //Once superclass constructor has finished, table entries can be initialized
-        for(int row = 0; row < get_num_rows(); ++row) {
+        for(int row = 0; row < this->get_num_rows(); ++row) {
             vid[row] = 0;
             for(size_t i = 0; i < parameters.members.size(); ++i) {
                 suspected[row][i] = false;
@@ -119,7 +127,7 @@ public:
             num_acked[row] = 0;
             wedged[row] = false;
             globalMinReady[row] = false;
-	    heartbeat[row] = true;
+            heartbeat[row] = true;
         }
     }
 

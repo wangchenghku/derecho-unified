@@ -77,7 +77,7 @@ MulticastGroup<dispatchersType>::MulticastGroup(
           sst(_sst) {
     assert(window_size >= 1);
     // this is only for SST multicast
-    assert(max_msg_size <= 10100);
+    assert(max_msg_size <= max_sst_msg_size);
 
     if(!derecho_params.filename.empty()) {
         file_writer = std::make_unique<FileWriter>(make_file_written_callback(),
@@ -275,7 +275,7 @@ bool MulticastGroup<dispatchersType>::create_sst_multicast_group() {
     }
     std::cout << std::endl;
 
-    multicast_group = new sst_multicast_group<10100> (members, members[member_index], window_size);
+    multicast_group = new sst_multicast_group (sst, window_size);
     return true;
 }
 
@@ -439,26 +439,25 @@ void MulticastGroup<dispatchersType>::register_predicates() {
         }
     };
     auto receiver_trig = [this, num_times, sst_receive_handler](DerechoSST& sst) mutable {
-        auto& multicastSST = multicast_group->sst;
         bool update_sst = false;
         std::lock_guard<std::mutex> lock(msg_state_mtx);
         for(uint i = 0; i < num_times; ++i) {
             for(int j = 0; j < num_members; ++j) {
-                uint32_t slot = multicastSST.num_received[member_index][j] % window_size;
-                if(multicastSST.slots[j][slot].next_seq ==
-                   (multicastSST.num_received[member_index][j]) / window_size + 1) {
-                    sst_receive_handler(j, multicastSST.num_received[member_index][j],
-                                        multicastSST.slots[j][slot].buf,
-                                        multicastSST.slots[j][slot].size);
-                    multicastSST.num_received[member_index][j]++;
+                uint32_t slot = sst.num_received_sst[member_index][j] % window_size;
+                if(sst.slots[j][slot].next_seq ==
+                   (sst.num_received_sst[member_index][j]) / window_size + 1) {
+                    sst_receive_handler(j, sst.num_received_sst[member_index][j],
+                                        sst.slots[j][slot].buf,
+                                        sst.slots[j][slot].size);
+                    sst.num_received_sst[member_index][j]++;
                     update_sst = true;
                 }
             }
         }
         if(update_sst) {
-            multicastSST.put(multicastSST.num_received.get_base() -
-                                 multicastSST.getBaseAddress(),
-                             sizeof(multicastSST.num_received[0][0]) * num_members);
+            sst.put(sst.num_received_sst.get_base() -
+                                 sst.getBaseAddress(),
+                             sizeof(sst.num_received_sst[0][0]) * num_members);
             // std::atomic_signal_fence(std::memory_order_acq_rel);
             auto* min_ptr = std::min_element(&sst.nReceived[member_index][0],
                                              &sst.nReceived[member_index][num_members]);
@@ -622,6 +621,7 @@ void MulticastGroup<dispatchersType>::wedge() {
 
 // template <typename dispatchersType>
 // void MulticastGroup<dispatchersType>::send_loop() {
+// pthread_setname_np(pthread_self(), "send thread");
 //     auto should_send = [&]() {
 // 		DERECHO_LOG(-1, -1, "should_send_start");
 //         if(!rdmc_groups_created) {
@@ -672,6 +672,7 @@ void MulticastGroup<dispatchersType>::wedge() {
 
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::check_failures_loop() {
+    pthread_setname_np(pthread_self(), "check_failures");
     while(!thread_shutdown) {
         std::this_thread::sleep_for(microseconds(sender_timeout));
         if(sst) {
@@ -879,6 +880,7 @@ void MulticastGroup<dispatchersType>::send_objects(tcp::socket& new_member_socke
 
 template <typename dispatchersType>
 void MulticastGroup<dispatchersType>::rpc_process_loop() {
+    pthread_setname_np(pthread_self(), "rpc thread");
     using namespace ::rpc::remote_invocation_utilities;
     const auto header_size = header_space();
     auto max_payload_size = max_msg_size - sizeof(header);

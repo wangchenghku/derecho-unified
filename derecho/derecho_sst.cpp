@@ -5,7 +5,7 @@
 namespace derecho {
 
 void DerechoSST::init_local_row_from_previous(const DerechoSST& old_sst, const int row, const int num_changes_installed) {
-    const int local_row = get_local_index();
+    const int local_row = this->get_local_index();
     static thread_local std::mutex copy_mutex;
     std::unique_lock<std::mutex> lock(copy_mutex);
     //Copy elements [changes_installed...n] of the old changes array to the beginning of the new changes array
@@ -29,7 +29,7 @@ void DerechoSST::init_local_row_from_previous(const DerechoSST& old_sst, const i
 }
 
 void DerechoSST::init_local_change_proposals(const int other_row) {
-    const int local_row = get_local_index();
+    const int local_row = this->get_local_index();
     static thread_local std::mutex copy_mutex;
     std::unique_lock<std::mutex> lock(copy_mutex);
     memcpy(const_cast<node_id_t*>(changes[local_row]),
@@ -42,7 +42,7 @@ void DerechoSST::init_local_change_proposals(const int other_row) {
 }
 
 std::string DerechoSST::to_string() const {
-    const int row = get_local_index();
+    const int row = this->get_local_index();
     std::stringstream s;
     s << "Vid=" << vid[row] << " ";
     s << "Suspected={ ";

@@ -21,6 +21,7 @@
 #include "mutils-serialization/SerializationMacros.hpp"
 #include "mutils-serialization/SerializationSupport.hpp"
 #include "rdmc/rdmc.h"
+#include "sst/max_sst_msg_size.h"
 #include "sst/sst.h"
 
 #include "sst/sst_multicast.h"
@@ -270,9 +271,7 @@ private:
     std::shared_ptr<DerechoSST> sst;
 
     /** The SST for multicasts **/
-    sst_multicast_group<10100>* multicast_group;
-
-    friend class sst_multicast_group;
+    sst_multicast_group* multicast_group;
 
     using pred_handle = typename sst::Predicates<DerechoSST>::pred_handle;
     pred_handle stability_pred_handle;

@@ -417,6 +417,7 @@ void resources::post_remote_write_with_completion(uint32_t id, long long int off
 }
 
 void polling_loop() {
+    pthread_setname_np(pthread_self(), "sst_poll");
     std::cout << "Polling thread starting" << std::endl;
     while(!shutdown) {
         auto ce = verbs_poll_completion();

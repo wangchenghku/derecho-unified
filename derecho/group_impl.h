@@ -303,6 +303,7 @@ void Group<dispatcherType>::rdmc_sst_setup() {
 template <typename dispatcherType>
 void Group<dispatcherType>::create_threads() {
     client_listener_thread = std::thread{[this]() {
+	pthread_setname_np(pthread_self(), "client_listener");
         while(!thread_shutdown) {
             tcp::socket client_socket = server_socket.accept();
             /* util::debug_log().log_event(std::stringstream() << "Background thread got a client connection from " << client_socket.remote_ip); */
@@ -312,6 +313,7 @@ void Group<dispatcherType>::create_threads() {
     }};
 
     old_view_cleanup_thread = std::thread([this]() {
+        pthread_setname_np(pthread_self(), "old_view");
         while(!thread_shutdown) {
             unique_lock_t old_views_lock(old_views_mutex);
             old_views_cv.wait(old_views_lock, [this]() {
@@ -660,8 +662,10 @@ template <typename dispatcherType>
 void Group<dispatcherType>::setup_derecho(CallbackSet callbacks,
                                                  const DerechoParams& derecho_params) {
     curr_view->gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
-        curr_view->members, curr_view->members[curr_view->my_rank],
-        [this](const uint32_t node_id) { report_failure(node_id); }, curr_view->failed, false));
+                                                         curr_view->members, curr_view->members[curr_view->my_rank],
+                                                         [this](const uint32_t node_id) { report_failure(node_id); },
+                                                         curr_view->failed, false),
+                                                     derecho_params.window_size);
 
     curr_view->derecho_group = std::make_unique<MulticastGroup<dispatcherType>>(
         curr_view->members, curr_view->members[curr_view->my_rank],
@@ -678,8 +682,10 @@ void Group<dispatcherType>::setup_derecho(CallbackSet callbacks,
 template <typename dispatcherType>
 void Group<dispatcherType>::transition_sst_and_rdmc(View<dispatcherType>& newView) {
     newView.gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
-        newView.members, newView.members[newView.my_rank],
-        [this](const uint32_t node_id) { report_failure(node_id); }, newView.failed, false));
+                                                      newView.members, newView.members[newView.my_rank],
+                                                      [this](const uint32_t node_id) { report_failure(node_id); },
+                                                      newView.failed, false),
+                                                  derecho_params.window_size);
     std::cout << "Going to create the derecho group" << std::endl;
     newView.derecho_group = std::make_unique<MulticastGroup<dispatcherType>>(
         newView.members, newView.members[newView.my_rank], newView.gmsSST,

@@ -123,7 +123,6 @@ struct SSTParams {
     const failure_upcall_t failure_upcall;
     const std::vector<char> already_failed;
     const bool start_predicate_thread;
-
     /**
      *
      * @param _members A vector of node IDs, each of which represents a node
@@ -142,7 +141,7 @@ struct SSTParams {
      */
     SSTParams(const std::vector<uint32_t>& _members,
               const uint32_t my_node_id,
-              const failure_upcall_t failure_upcall = nullptr,
+	      const failure_upcall_t failure_upcall = nullptr,
               const std::vector<char> already_failed = {},
               const bool start_predicate_thread = true)
             : members(_members),

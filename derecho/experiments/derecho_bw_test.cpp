@@ -19,6 +19,7 @@ using namespace derecho;
 unique_ptr<rdmc::barrier_group> universal_barrier_group;
 
 int main(int argc, char *argv[]) {
+    pthread_setname_np(pthread_self(), "bw_test");
     srand(time(NULL));
 
     uint32_t server_rank = 0;
