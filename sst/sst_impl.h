@@ -29,13 +29,14 @@ namespace sst {
  */
 template <typename DerivedSST>
 SST<DerivedSST>::~SST() {
-    if(rows != nullptr) {
-        delete[](const_cast<char*>(rows));
-    }
-
+    std::cout << "Inside SST destructor: num_members = " << num_members << std::endl;
     thread_shutdown = true;
     for(auto& thread : background_threads) {
         if(thread.joinable()) thread.join();
+    }
+
+    if(rows != nullptr) {
+        delete[](const_cast<char*>(rows));
     }
 }
 
@@ -60,7 +61,7 @@ void SST<DerivedSST>::start_predicate_evaluation() {
  */
 template <typename DerivedSST>
 void SST<DerivedSST>::detect() {
-    pthread_setname_np(pthread_self(), "sst detect");
+  pthread_setname_np(pthread_self(), ("sst detect" + std::to_string(num_members)).c_str());
     if(!thread_start) {
         std::unique_lock<std::mutex> lock(thread_start_mutex);
         thread_start_cv.wait(lock, [this]() { return thread_start; });

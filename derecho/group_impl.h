@@ -661,7 +661,6 @@ Group<dispatcherType>::~Group() {
 template <typename dispatcherType>
 void Group<dispatcherType>::setup_derecho(CallbackSet callbacks,
                                                  const DerechoParams& derecho_params) {
-    std::cout << "Window size is: " << derecho_params.window_size << std::endl;
     curr_view->gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
                                                          curr_view->members, curr_view->members[curr_view->my_rank],
                                                          [this](const uint32_t node_id) { report_failure(node_id); },
@@ -682,7 +681,6 @@ void Group<dispatcherType>::setup_derecho(CallbackSet callbacks,
  */
 template <typename dispatcherType>
 void Group<dispatcherType>::transition_sst_and_rdmc(View<dispatcherType>& newView) {
-    std::cout << "Window size is: " << derecho_params.window_size << std::endl;
     newView.gmsSST = std::make_shared<DerechoSST>(sst::SSTParams(
                                                       newView.members, newView.members[newView.my_rank],
                                                       [this](const uint32_t node_id) { report_failure(node_id); },

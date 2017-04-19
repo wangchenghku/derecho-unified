@@ -275,7 +275,7 @@ bool MulticastGroup<dispatchersType>::create_sst_multicast_group() {
     }
     std::cout << std::endl;
 
-    multicast_group = new sst_multicast_group (sst, window_size);
+    multicast_group_ptr = std::make_unique <sst_multicast_group> (sst, window_size);
     return true;
 }
 
@@ -686,7 +686,7 @@ bool MulticastGroup<dispatchersType>::send() {
     if(thread_shutdown || !sst_multicast_group_created) {
         return false;
     }
-    multicast_group->send();
+    multicast_group_ptr->send();
     // DERECHO_LOG(-1, -1, "user_send_finished");
     return true;
     // std::lock_guard<std::mutex> lock(msg_state_mtx);
@@ -747,7 +747,7 @@ char* MulticastGroup<dispatchersType>::get_position(
     // free_message_buffers.pop_back();
 
     // Fill header
-    char* buf = (char*) multicast_group->get_buffer(msg_size);
+    char* buf = (char*) multicast_group_ptr->get_buffer(msg_size);
     if(!buf) {
         // std::cout << "SST multicast returned false" << std::endl;
         return nullptr;
