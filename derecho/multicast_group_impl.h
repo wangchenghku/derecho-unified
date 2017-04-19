@@ -269,11 +269,11 @@ bool MulticastGroup<dispatchersType>::create_sst_multicast_group() {
     // // rotated list of members - used for creating n internal RDMC groups
     // std::vector<uint32_t> rotated_members(num_members);
 
-    std::cout << "The members are" << std::endl;
-    for(int i = 0; i < num_members; ++i) {
-        std::cout << members[i] << " ";
-    }
-    std::cout << std::endl;
+    // std::cout << "The members are" << std::endl;
+    // for(int i = 0; i < num_members; ++i) {
+    //     std::cout << members[i] << " ";
+    // }
+    // std::cout << std::endl;
 
     multicast_group_ptr = std::make_unique <sst_multicast_group> (sst, window_size);
     return true;
@@ -476,8 +476,8 @@ void MulticastGroup<dispatchersType>::register_predicates() {
             }
         }
     };
-    sst->predicates.insert(receiver_pred, receiver_trig,
-                          sst::PredicateType::RECURRENT);
+    receiver_pred_handle = sst->predicates.insert(receiver_pred, receiver_trig,
+                                                  sst::PredicateType::RECURRENT);
 
     auto stability_pred = [this](
         const DerechoSST& sst) { return true; };
@@ -502,8 +502,8 @@ void MulticastGroup<dispatchersType>::register_predicates() {
                         sizeof(long long int));
             }
         };
-    stability_pred_handle = sst->predicates.insert(
-        stability_pred, stability_trig, sst::PredicateType::RECURRENT);
+    stability_pred_handle = sst->predicates.insert(stability_pred, stability_trig,
+						   sst::PredicateType::RECURRENT);
 
     auto delivery_pred = [this](
         const DerechoSST& sst) { return true; };
@@ -551,7 +551,8 @@ void MulticastGroup<dispatchersType>::register_predicates() {
                     sizeof(long long int));
         }
     };
-    delivery_pred_handle = sst->predicates.insert(delivery_pred, delivery_trig, sst::PredicateType::RECURRENT);
+    delivery_pred_handle = sst->predicates.insert(delivery_pred, delivery_trig,
+                                                  sst::PredicateType::RECURRENT);
 
     auto sender_pred = [this](const DerechoSST& sst) {
         long long int seq_num = next_message_to_deliver * num_members + member_index;
@@ -600,6 +601,7 @@ void MulticastGroup<dispatchersType>::wedge() {
         return;
     }
 
+    sst->predicates.remove(receiver_pred_handle);
     sst->predicates.remove(stability_pred_handle);
     sst->predicates.remove(delivery_pred_handle);
     sst->predicates.remove(sender_pred_handle);

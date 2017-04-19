@@ -29,14 +29,13 @@ namespace sst {
  */
 template <typename DerivedSST>
 SST<DerivedSST>::~SST() {
-    std::cout << "Inside SST destructor: num_members = " << num_members << std::endl;
+    if(rows != nullptr) {
+        delete[](const_cast<char*>(rows));
+    }
+    
     thread_shutdown = true;
     for(auto& thread : background_threads) {
         if(thread.joinable()) thread.join();
-    }
-
-    if(rows != nullptr) {
-        delete[](const_cast<char*>(rows));
     }
 }
 

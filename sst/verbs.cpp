@@ -152,6 +152,31 @@ resources::resources(int r_index, char *write_addr, char *read_addr, int size_w,
     cout << "Established RDMA connection with node " << r_index << endl;
 }
 
+
+void resources::resources_destroy() {
+    int rc = 0;
+    if(qp) {
+        rc = ibv_destroy_qp(qp);
+        check_for_error(qp, "Could not destroy queue pair, error code is " +
+                                std::to_string(rc));
+    }
+
+    if(write_mr) {
+        rc = ibv_dereg_mr(write_mr);
+        check_for_error(
+            !rc,
+            "Could not de-register memory region : write_mr, error code is " +
+                std::to_string(rc));
+    }
+    if(read_mr) {
+        rc = ibv_dereg_mr(read_mr);
+        check_for_error(
+            !rc,
+            "Could not de-register memory region : read_mr, error code is " +
+                std::to_string(rc));
+    }
+}
+
 /**
  * Cleans up all IB Verbs resources associated with this connection.
  */
@@ -350,8 +375,8 @@ int resources::post_remote_send(uint32_t id, long long int offset, long long int
     } else {
         sr.opcode = IBV_WR_RDMA_WRITE;
     }
-    if (completion) {
-      sr.send_flags = IBV_SEND_SIGNALED;
+    if(completion) {
+        sr.send_flags = IBV_SEND_SIGNALED;
     }
     // set the remote rkey and virtual address
     sr.wr.rdma.remote_addr = remote_props.addr + offset;
@@ -368,7 +393,7 @@ int resources::post_remote_send(uint32_t id, long long int offset, long long int
  * @param size The number of bytes to read from remote memory.
  */
 void resources::post_remote_read(uint32_t id, long long int size) {
-  int rc = post_remote_send(id, 0, size, 0, false);
+    int rc = post_remote_send(id, 0, size, 0, false);
     check_for_error(
         !rc, "Could not post RDMA read, error code is " + std::to_string(rc));
 }
@@ -411,7 +436,7 @@ void resources::post_remote_write_with_completion(uint32_t id, long long int siz
 }
 
 void resources::post_remote_write_with_completion(uint32_t id, long long int offset, long long int size) {
-  int rc = post_remote_send(id, offset, size, 1, true);
+    int rc = post_remote_send(id, offset, size, 1, true);
     check_for_error(
         !rc, "Could not post RDMA write, error code is " + std::to_string(rc));
 }
@@ -421,7 +446,7 @@ void polling_loop() {
     std::cout << "Polling thread starting" << std::endl;
     while(!shutdown) {
         auto ce = verbs_poll_completion();
-	util::polling_data.insert_completion_entry(ce.first, ce.second);
+        util::polling_data.insert_completion_entry(ce.first, ce.second);
     }
     std::cout << "Polling thread ending" << std::endl;
 }
@@ -521,10 +546,10 @@ void resources_create() {
 
     // get the device attributes for the device
     ibv_query_device(g_res->ib_ctx, &g_res->device_attr);
-    
+
     // cout << "device_attr.max_qp_wr = " << g_res->device_attr.max_qp_wr << endl;
     // cout << "device_attr.max_cqe = " << g_res->device_attr.max_cqe << endl;
-    
+
     // set to 10000 entries
     cq_size = 10000;
     g_res->cq = ibv_create_cq(g_res->ib_ctx, cq_size, NULL, NULL, 0);
@@ -585,9 +610,9 @@ void verbs_destroy() {
     //     check_for_error(!rc, "Could not close RDMA device");
     // }
 
-    // if (polling_thread.joinable()) {
-    // polling_thread.join();
-    // }
+    if(polling_thread.joinable()) {
+        polling_thread.join();
+    }
     std::cout << "Shutting down" << std::endl;
 }
 

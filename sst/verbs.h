@@ -42,7 +42,7 @@ private:
     /** Connect the queue pairs. */
     void connect_qp();
     /** Post a remote RDMA operation. */
-  int post_remote_send(uint32_t id, long long int offset, long long int size, int op, bool completion);
+    int post_remote_send(uint32_t id, long long int offset, long long int size, int op, bool completion);
 
 public:
     /** Index of the remote node. */
@@ -65,6 +65,7 @@ public:
      */
     resources(int r_index, char *write_addr, char *read_addr, int size_w,
               int size_r);
+    void resources_destroy();
     /** Destroys the resources. */
     virtual ~resources();
     /*

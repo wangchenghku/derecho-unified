@@ -274,6 +274,7 @@ private:
     std::unique_ptr<sst_multicast_group> multicast_group_ptr;
 
     using pred_handle = typename sst::Predicates<DerechoSST>::pred_handle;
+    pred_handle receiver_pred_handle;
     pred_handle stability_pred_handle;
     pred_handle delivery_pred_handle;
     pred_handle sender_pred_handle;

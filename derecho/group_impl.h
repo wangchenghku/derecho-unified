@@ -312,7 +312,7 @@ void Group<dispatcherType>::create_threads() {
         std::cout << "Connection listener thread shutting down." << std::endl;
     }};
 
-    old_view_cleanup_thread = std::thread([this]() {
+    old_view_cleanup_thread  = std::thread([this]() {
         pthread_setname_np(pthread_self(), "old_view");
         while(!thread_shutdown) {
             unique_lock_t old_views_lock(old_views_mutex);
