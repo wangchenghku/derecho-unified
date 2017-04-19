@@ -271,7 +271,7 @@ private:
     std::shared_ptr<DerechoSST> sst;
 
     /** The SST for multicasts **/
-    std::unique_ptr<sst_multicast_group> multicast_group_ptr;
+    std::unique_ptr<sst_multicast_group<DerechoSST>> multicast_group_ptr;
 
     using pred_handle = typename sst::Predicates<DerechoSST>::pred_handle;
     pred_handle receiver_pred_handle;

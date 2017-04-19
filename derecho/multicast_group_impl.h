@@ -275,7 +275,7 @@ bool MulticastGroup<dispatchersType>::create_sst_multicast_group() {
     // }
     // std::cout << std::endl;
 
-    multicast_group_ptr = std::make_unique <sst_multicast_group> (sst, window_size);
+  multicast_group_ptr = std::make_unique <sst_multicast_group<DerechoSST>> (sst, window_size);
     return true;
 }
 

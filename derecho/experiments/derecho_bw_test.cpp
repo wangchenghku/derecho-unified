@@ -5,10 +5,10 @@
 #include <time.h>
 #include <vector>
 
-#include "derecho/derecho.h"
-#include "block_size.h"
 #include "aggregate_bandwidth.h"
 #include "block_size.h"
+#include "block_size.h"
+#include "derecho/derecho.h"
 #include "log_results.h"
 #include "rdmc/rdmc.h"
 #include "rdmc/util.h"
@@ -49,14 +49,13 @@ int main(int argc, char *argv[]) {
         &num_nodes,
         num_senders_selector,
         num_last_received = 0u
-    ](int sender_id, long long int index, char *buf,
-      long long int msg_size) mutable {
+    ](int sender_id, long long int index, char *buf, long long int msg_size) mutable {
         // cout << "In stability callback; sender = " << sender_id
         //      << ", index = " << index << endl;
         // DERECHO_LOG(sender_id, index, "stability_callback");
         if(num_senders_selector == 0) {
             if(index == num_messages - 1 && sender_id == (int)num_nodes - 1) {
-	      done = true;
+                done = true;
             }
         } else if(num_senders_selector == 1) {
             if(index == num_messages - 1) {
@@ -77,14 +76,14 @@ int main(int argc, char *argv[]) {
     std::unique_ptr<derecho::Group<rpc::Dispatcher<>>> managed_group;
     if(node_rank == server_rank) {
         managed_group = std::make_unique<derecho::Group<rpc::Dispatcher<>>>(
-                node_addresses[node_rank], std::move(empty_dispatcher),
-                derecho::CallbackSet{stability_callback, nullptr},
-                derecho::DerechoParams{max_msg_size, block_size, std::string(), window_size});
+            node_addresses[node_rank], std::move(empty_dispatcher),
+            derecho::CallbackSet{stability_callback, nullptr},
+            derecho::DerechoParams{max_msg_size, block_size, std::string(), window_size});
     } else {
         managed_group = std::make_unique<derecho::Group<rpc::Dispatcher<>>>(
-                node_rank, node_addresses[node_rank], server_rank,
-                node_addresses[server_rank], std::move(empty_dispatcher),
-                derecho::CallbackSet{stability_callback, nullptr});
+            node_rank, node_addresses[node_rank], server_rank,
+            node_addresses[server_rank], std::move(empty_dispatcher),
+            derecho::CallbackSet{stability_callback, nullptr});
     }
 
     cout << "Finished constructing/joining ManagedGroup" << endl;
@@ -121,7 +120,7 @@ int main(int argc, char *argv[]) {
             while(!buf) {
                 buf = managed_group->get_sendbuffer_ptr(max_msg_size);
             }
-            // cout << "Obtained a buffer, sending" << endl;	    
+            // cout << "Obtained a buffer, sending" << endl;
             managed_group->send();
         }
     };
@@ -134,7 +133,7 @@ int main(int argc, char *argv[]) {
     };
 
     managed_group->barrier_sync();
-    
+
     struct timespec start_time;
     // start timer
     clock_gettime(CLOCK_REALTIME, &start_time);

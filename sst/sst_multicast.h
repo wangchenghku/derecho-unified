@@ -9,10 +9,10 @@
 #include <thread>
 #include <vector>
 
-#include "derecho/derecho_sst.h"
 #include "sst/sst.h"
 #include "sst/sst_multicast_msg.h"
 
+template<typename sstType>
 class sst_multicast_group {
     // number of messages for which get_buffer has been called
     uint64_t num_queued = 0;
@@ -26,7 +26,7 @@ class sst_multicast_group {
     std::mutex msg_send_mutex;
 
     // SST
-    std::shared_ptr<derecho::DerechoSST> sst;
+    std::shared_ptr<sstType> sst;
 
     // number of members
     const uint32_t num_members;
@@ -50,7 +50,7 @@ class sst_multicast_group {
     }
 
 public:
-    sst_multicast_group(std::shared_ptr<derecho::DerechoSST> sst,
+    sst_multicast_group(std::shared_ptr<sstType> sst,
                         uint32_t window_size)
             : my_rank(sst->get_local_index()),
               sst(sst),
