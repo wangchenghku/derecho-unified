@@ -42,6 +42,6 @@ void log_results(uint32_t num_nodes, int num_senders_selector,
     std::ofstream fout;
     fout.open(filename, std::ofstream::app);
     fout << num_nodes << " " << num_senders_selector << " " << msg_size << " "
-         << window_size << num_messages << avg_bw << std::endl;
+         << window_size << " " << num_messages << " " << avg_bw << std::endl;
     fout.close();
 }

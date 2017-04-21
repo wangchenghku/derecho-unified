@@ -87,6 +87,12 @@ int main(int argc, char *argv[]) {
     }
 
     cout << "Finished constructing/joining ManagedGroup" << endl;
+    cout << "The order of members is: " << endl;
+    auto cur_members = managed_group->get_members();
+    for (auto n : cur_members) {
+      cout << n << " ";
+    }
+    cout << endl;
 
     while(managed_group->get_members().size() < num_nodes) {
     }
