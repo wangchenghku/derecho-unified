@@ -1,5 +1,4 @@
-#ifndef LOG_RESULTS_H
-#define LOG_RESULTS_H
+#pragma once
 
 #include <fstream>
 
@@ -36,4 +35,13 @@ void log_results(uint32_t num_nodes, int num_senders_selector,
          << avg_bw << std::endl;
     fout.close();
 }
-#endif
+
+void log_results(uint32_t num_nodes, int num_senders_selector,
+                 long long unsigned int msg_size, unsigned int window_size,
+		 int num_messages, double avg_bw, std::string filename) {
+    std::ofstream fout;
+    fout.open(filename, std::ofstream::app);
+    fout << num_nodes << " " << num_senders_selector << " " << msg_size << " "
+         << window_size << num_messages << avg_bw << std::endl;
+    fout.close();
+}

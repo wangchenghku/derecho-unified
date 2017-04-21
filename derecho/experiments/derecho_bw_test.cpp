@@ -172,7 +172,7 @@ int main(int argc, char *argv[]) {
         bw = (max_msg_size * num_messages + 0.0) / nanoseconds_elapsed;
     }
     double avg_bw = aggregate_bandwidth(members, node_rank, bw);
-    log_results(num_nodes, num_senders_selector, max_msg_size, avg_bw,
+    log_results(num_nodes, num_senders_selector, max_msg_size, window_size, num_messages, avg_bw,
                 "data_derecho_bw");
 
     managed_group->barrier_sync();
