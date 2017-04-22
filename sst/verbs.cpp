@@ -395,7 +395,7 @@ int resources::post_remote_send(uint32_t id, long long int offset, long long int
 void resources::post_remote_read(uint32_t id, long long int size) {
     int rc = post_remote_send(id, 0, size, 0, false);
     check_for_error(
-        !rc, "Could not post RDMA read, error code is " + std::to_string(rc));
+        !rc, "Could not post RDMA read, error code is " + std::to_string(rc) + " remote_index is " + std::to_string(remote_index));
 }
 /**
  * @param offset The offset, in bytes, of the remote memory buffer at which to
@@ -405,7 +405,7 @@ void resources::post_remote_read(uint32_t id, long long int size) {
 void resources::post_remote_read(uint32_t id, long long int offset, long long int size) {
     int rc = post_remote_send(id, offset, size, 0, false);
     check_for_error(
-        !rc, "Could not post RDMA read, error code is " + std::to_string(rc));
+        !rc, "Could not post RDMA read, error code is " + std::to_string(rc) + " remote_index is " + std::to_string(remote_index));
 }
 /**
  * @param size The number of bytes to write from the local buffer to remote
@@ -414,7 +414,7 @@ void resources::post_remote_read(uint32_t id, long long int offset, long long in
 void resources::post_remote_write(uint32_t id, long long int size) {
     int rc = post_remote_send(id, 0, size, 1, false);
     check_for_error(
-        !rc, "Could not post RDMA write, error code is " + std::to_string(rc));
+        !rc, "Could not post RDMA write (with no offset), error code is " + std::to_string(rc) + " remote_index is " + std::to_string(remote_index));
 }
 
 /**
@@ -426,19 +426,19 @@ void resources::post_remote_write(uint32_t id, long long int size) {
 void resources::post_remote_write(uint32_t id, long long int offset, long long int size) {
     int rc = post_remote_send(id, offset, size, 1, false);
     check_for_error(
-        !rc, "Could not post RDMA write, error code is " + std::to_string(rc));
+        !rc, "Could not post RDMA write with offset, error code is " + std::to_string(rc) + " remote_index is " + std::to_string(remote_index));
 }
 
 void resources::post_remote_write_with_completion(uint32_t id, long long int size) {
     int rc = post_remote_send(id, 0, size, 1, true);
     check_for_error(
-        !rc, "Could not post RDMA write, error code is " + std::to_string(rc));
+        !rc, "Could not post RDMA write (with no offset) with completion, error code is " + std::to_string(rc) + " remote_index is " + std::to_string(remote_index));
 }
 
 void resources::post_remote_write_with_completion(uint32_t id, long long int offset, long long int size) {
     int rc = post_remote_send(id, offset, size, 1, true);
     check_for_error(
-        !rc, "Could not post RDMA write, error code is " + std::to_string(rc));
+        !rc, "Could not post RDMA write with offset and completion, error code is " + std::to_string(rc) + " remote_index is " + std::to_string(remote_index));
 }
 
 void polling_loop() {
@@ -550,8 +550,8 @@ void resources_create() {
     // cout << "device_attr.max_qp_wr = " << g_res->device_attr.max_qp_wr << endl;
     // cout << "device_attr.max_cqe = " << g_res->device_attr.max_cqe << endl;
 
-    // set to 10000 entries
-    cq_size = 10000;
+    // set to many entries
+    cq_size = 1000;
     g_res->cq = ibv_create_cq(g_res->ib_ctx, cq_size, NULL, NULL, 0);
     check_for_error(g_res->cq,
                     "Could not create completion queue, error code is " +

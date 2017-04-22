@@ -175,8 +175,6 @@ void SST<DerivedSST>::put_with_completion(std::vector<uint32_t>& receiver_ranks,
         num_writes_posted++;
     }
 
-    return;
-
     // track which nodes haven't failed yet
     std::vector<bool> polled_successfully_from(num_members, false);
 
