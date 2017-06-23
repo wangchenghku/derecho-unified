@@ -9,6 +9,7 @@
 #include "block_size.h"
 #include "block_size.h"
 #include "derecho/derecho.h"
+#include "derecho/predicate_thread_efficiency.h"
 #include "log_results.h"
 #include "rdmc/rdmc.h"
 #include "rdmc/util.h"
@@ -28,21 +29,24 @@ struct exp_result {
     int num_messages;
     int send_medium;
     int raw_mode;
+    uint32_t num_slow_nodes;
+    int predicate_thread_efficiency;
     double bw;
 
     void print(std::ofstream &fout) {
         fout << num_nodes << " " << num_senders_selector << " "
              << max_msg_size << " " << window_size << " "
              << num_messages << " " << send_medium << " "
-             << raw_mode << " " << bw << endl;
+             << raw_mode << " " << num_slow_nodes << " "
+             << predicate_thread_efficiency << " " << bw << endl;
     }
 };
 
 int main(int argc, char *argv[]) {
     try {
-        if(argc < 7) {
+        if(argc < 9) {
             cout << "Insufficient number of command line arguments" << endl;
-            cout << "Enter max_msg_size, num_senders_selector, window_size, num_messages, send_medium, raw_mode" << endl;
+            cout << "Enter max_msg_size, num_senders_selector, window_size, num_messages, send_medium, raw_mode, num_slow_nodes,  predicate_thread_efficiency" << endl;
             cout << "Thank you" << endl;
             exit(1);
         }
@@ -70,6 +74,11 @@ int main(int argc, char *argv[]) {
         const int num_messages = atoi(argv[4]);
         const int send_medium = atoi(argv[5]);
         const int raw_mode = atoi(argv[6]);
+        const uint32_t num_slow_nodes = atoi(argv[7]);
+        if(node_id < num_slow_nodes) {
+            predicate_thread_efficiency = atoi(argv[8]);
+        }
+        assert(predicate_thread_efficiency > 0 && predicate_thread_efficiency <= 100);
 
         volatile bool done = false;
         auto stability_callback = [
@@ -151,14 +160,14 @@ int main(int argc, char *argv[]) {
 
         while(managed_group->get_members().size() < num_nodes) {
         }
-	uint32_t node_rank = -1;
+        uint32_t node_rank = -1;
         auto members_order = managed_group->get_members();
         cout << "The order of members is :" << endl;
         for(uint i = 0; i < num_nodes; ++i) {
             cout << members_order[i] << " ";
-	    if (members_order[i] == node_id) {
-	      node_rank = i;
-	    }
+            if(members_order[i] == node_id) {
+                node_rank = i;
+            }
         }
         cout << endl;
 
@@ -207,7 +216,7 @@ int main(int argc, char *argv[]) {
         if(node_rank == 0) {
             log_results(exp_result{num_nodes, num_senders_selector, max_msg_size,
                                    window_size, num_messages, send_medium,
-                                   raw_mode, avg_bw},
+		  raw_mode, num_nodes, (int)predicate_thread_efficiency, avg_bw},
                         "data_derecho_bw");
         }
 

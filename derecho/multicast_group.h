@@ -234,6 +234,7 @@ private:
     std::list<pred_handle> stability_pred_handles;
     std::list<pred_handle> delivery_pred_handles;
     std::list<pred_handle> sender_pred_handles;
+    pred_handle busy_wait_pred_handle;
 
     std::vector<bool> last_transfer_medium;
 

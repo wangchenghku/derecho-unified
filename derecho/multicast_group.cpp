@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "multicast_group.h"
+#include "predicate_thread_efficiency.h"
 #include "rdmc/util.h"
 
 namespace derecho {
@@ -912,6 +913,27 @@ void MulticastGroup::register_predicates() {
             }
         }
     }
+    std::cout << "Efficiency of the predicate thread is: " << predicate_thread_efficiency << std::endl;
+    auto busy_wait_pred = [](const DerechoSST& sst) {
+        return true;
+    };
+    struct timespec time;
+    clock_gettime(CLOCK_REALTIME, &time);
+    long long int previous_time_in_nanoseconds = time.tv_sec * (long long int)1e9 + time.tv_nsec;
+    auto busy_wait_trig = [previous_time_in_nanoseconds](DerechoSST& sst) mutable {
+        struct timespec time;
+        clock_gettime(CLOCK_REALTIME, &time);
+        long long int current_time_in_nanoseconds = time.tv_sec * (long long int)1e9 + time.tv_nsec;
+        auto time_to_busy_wait = ((100 - predicate_thread_efficiency) / predicate_thread_efficiency) * (current_time_in_nanoseconds - previous_time_in_nanoseconds);
+        previous_time_in_nanoseconds = current_time_in_nanoseconds;
+        while(current_time_in_nanoseconds - previous_time_in_nanoseconds < time_to_busy_wait) {
+            clock_gettime(CLOCK_REALTIME, &time);
+            current_time_in_nanoseconds = time.tv_sec * (long long int)1e9 + time.tv_nsec;
+        }
+        previous_time_in_nanoseconds = current_time_in_nanoseconds;
+    };
+    busy_wait_pred_handle = sst->predicates.insert(busy_wait_pred, busy_wait_trig,
+						   sst::PredicateType::RECURRENT);
 }
 
 MulticastGroup::~MulticastGroup() {
@@ -954,7 +976,8 @@ void MulticastGroup::wedge() {
         sst->predicates.remove(*handle_iter);
         handle_iter = delivery_pred_handles.erase(handle_iter);
     }
-
+    sst->predicates.remove(busy_wait_pred_handle);
+    
     for(uint i = 0; i < num_members; ++i) {
         rdmc::destroy_group(i + rdmc_group_num_offset);
     }
