@@ -924,9 +924,9 @@ void MulticastGroup::register_predicates() {
         struct timespec time;
         clock_gettime(CLOCK_REALTIME, &time);
         long long int current_time_in_nanoseconds = time.tv_sec * (long long int)1e9 + time.tv_nsec;
-	std::cout << "Time elapsed from last run: " << current_time_in_nanoseconds - previous_time_in_nanoseconds << std::endl;
+	// std::cout << "Time elapsed from last run: " << current_time_in_nanoseconds - previous_time_in_nanoseconds << std::endl;
         auto time_to_busy_wait = ((100 - predicate_thread_efficiency) / predicate_thread_efficiency) * (current_time_in_nanoseconds - previous_time_in_nanoseconds);
-	std::cout << "Time to busy wait: " << time_to_busy_wait << std::endl;
+	// std::cout << "Time to busy wait: " << time_to_busy_wait << std::endl;
         previous_time_in_nanoseconds = current_time_in_nanoseconds;
         while(current_time_in_nanoseconds - previous_time_in_nanoseconds < time_to_busy_wait) {
             clock_gettime(CLOCK_REALTIME, &time);
