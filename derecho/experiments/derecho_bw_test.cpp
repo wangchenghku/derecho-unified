@@ -75,8 +75,10 @@ int main(int argc, char *argv[]) {
         const int send_medium = atoi(argv[5]);
         const int raw_mode = atoi(argv[6]);
         const uint32_t num_slow_nodes = atoi(argv[7]);
+	// cout << "Number of slow nodes : " << num_slow_nodes << endl;
         if(node_id < num_slow_nodes) {
             predicate_thread_efficiency = atoi(argv[8]);
+            // cout << "Predicate thread efficiency = " << predicate_thread_efficiency << endl;
         }
         assert(predicate_thread_efficiency > 0 && predicate_thread_efficiency <= 100);
 
@@ -89,7 +91,7 @@ int main(int argc, char *argv[]) {
             num_last_received = 0u
         ](uint32_t subgroup, int sender_id, long long int index, char *buf, long long int msg_size) mutable {
             // cout << "In stability callback; sender = " << sender_id
-            // << ", index = " << index << endl;
+            //    << ", index = " << index << endl;
             if(num_senders_selector == 0) {
                 if(index == num_messages - 1 && sender_id == (int)num_nodes - 1) {
                     done = true;
@@ -216,7 +218,7 @@ int main(int argc, char *argv[]) {
         if(node_rank == 0) {
             log_results(exp_result{num_nodes, num_senders_selector, max_msg_size,
                                    window_size, num_messages, send_medium,
-		  raw_mode, num_nodes, (int)predicate_thread_efficiency, avg_bw},
+		  raw_mode, num_slow_nodes, (int)predicate_thread_efficiency, avg_bw},
                         "data_derecho_bw");
         }
 
