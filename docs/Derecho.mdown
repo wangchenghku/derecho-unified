@@ -1,0 +1,58 @@
+## Derecho API
+
+### Derecho Basics
+Figure 1: A cached stateful service with three subgroups. Two of the subgroups are additionally sharded, as occurs in distributed key-value stores.
+
+![cached stateful service with three subgroups. Two of the subgroups are additionally sharded, as occurs in distributed key-value stores](subgroup.png)
+
+As a running example, consider a strongly consistent server holding data in a sharded back-end, which is replicated for persistence and availability (Figure 1; the "shards" are simply the blue subgroups shows, each holding a disjoint subset of the data in the store as a whole). Clients access the service via a load balancer. The cache is shared as well, but more aggressively distributed to soak up a large read load. Because we desire strong consistency, the back-end performs updates as atomic transactions, and uses multicasts to invalidate cached data prior to performing transactions that modify the store.
+
+Each group has an associated protocol that is uses for multicasts. In the Paxos case, a multicast is delivered only after it has been persisted into a set of logs (one per member) and totally ordered. For the atomic case, we deliver, we deliver totally ordered messages after all members have an in-memory copy, but without logging them. Last is a "raw" multicast called RDMC. Here, latency is minimized but there is no ordering across concurrent sends, no logging, and a failure can disrupt delivery.
+
+### Challenges Explored Here
+Our central innovation relative to prior group computing frameworks are the subgroup features of Derecho, which support *multi-group structures*, as illustrated in Figure 1. Different elements can have different consistency needs. For example, we may wish to use Paxos in the back-end, because it probably needs persistence. In contrast, for invalidations and updates from the back-end to the cache, the best match is an atomic multicast: a cache is volatile, so a protocol designed to persist data to SSD would add unnecessary overhead.
+
+## Derecho Protocols
+### Building Blocks
+Derecho is comprised of two subsystems: one that we refer to as RDMC, which provides our reliable RDMA multicast, and a second that we call SST, which supports the monotonic logic framework within which our new protocols are coded.
+
+#### Shared State Table
+The Derecho SST is a *programming framework for monotonic logic*, used to encode our protocols.
+
+SST is built over an all-to-all shared memory table structure. Each group member will have a read-only copy of the SST for every other member in the group, and a read/write instance of its own SST row.
+
+To share data using the SST, a process updates its local copy of its own row, then *pushes* it to all other group members by enqueuing a set of RDMA requests. A push thus creates a 1-to-N communication pattern, like sending messages, but in fact using RDMA hardware to directly write into remote memories within interrupts or any kind of process-to-process synchronization.
+
+The SST framework provides high-level tools for logic programming. A RowFunction is performed by some single process, and typically just retrieves some field within some row, although doing so can involve more complex reasoning.
+
+The true power of RowFunctions becomes clear when combined with *reducer* functions, SST's primary mechanism for resolving shared state. A reducer function's purpose is to produce a summary of a certain RowFunction's view of the entire SST, not just a single view. Aggregates such as min, max, and sum are all examples of reducer functions.
+
+By combining reducer functions with RowFunctions, users can construct complex predicates over the state of the entire SST without reasoning directly about the underlying consistency. The functionality of a reducer function is simple; it takes a RowFunction `f: Row -> T`, allocates a new cell in the SST's row to store a T, produces a summary of f over the SST, and stores the result of that summary in the cell.
+
+```C++
+struct SimpleRow {int i;};
+int row_function(const volatile SimpleRow& s){
+  return s.i;
+}
+bool rp(){
+  return (Min(as_rf(row_function)) > 7) ||
+         (Max(as_rf(row_function)) < 2);
+}
+```
+We can also register a *trigger* to fire when the RowFunction has attained a specific value.
+```C++
+enum class Names {Simple};
+SST<T> build_set(){
+  auto predicate = 
+    associate_name(Names::Simple, rp());
+  SST<T> sst = make_SST<T>(predicate);
+  std::function<void (volatile SST<T>&)>
+    act = [](...){...};
+  sst->registerTrigger(Names::Simple, act);
+  return sst;
+}
+```
+Here we have associated the name `Simple` chosen from an `enum class name`, allowing us to register the trigger `act` to fire whenever `rp` becomes true.
+
+**2-Phase Commit in SST.** Consider a phase-commit protocol in a failure-free run. A leader can initiate such a request into a designated SST field, indicating that the protocol has been started by incrementing an instance number and pushing the row. If other members have a predicate that monitors this field, the triggered event would allow each to vote on the request using a value field. When the value is ready (signaled by the value becoming non-zero, or by setting a guard bit), the participant would push its row.<br>
+The leader then waits until all the values are ready. Once that condition is achieved, it aggregates the votes and can report the outcome, again with an associated outcome-ready bit. We've accomplished a 2-phase commit, yet expressed the protocol in terms of data shared in the SST and monotonic predicates.
